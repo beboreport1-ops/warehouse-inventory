@@ -262,7 +262,7 @@
   .variant-chip .size{
     font-size:13px;
     font-weight:700;
-    width:22px;
+    min-width:56px;
     flex-shrink:0;
     color:var(--text-dim);
   }
@@ -704,13 +704,24 @@ sb.channel('products-changes')
   .subscribe();
 
 const SIZE_TOKENS = ['XXL','XL','L','M','S','XS'];
+const COLOR_TOKENS = ['بني','كحلي','وردي','اسود','أسود','أبيض','ابيض','أصفر','اصفر','أحمر','احمر','أزرق','ازرق','أخضر','اخضر','رمادي','بيج','بنفسجي','ذهبي','فضي','برتقالي','فيروزي','كموني'];
+
 function splitVariant(name){
-  const parts = name.trim().split(/\s+/);
-  const last = parts[parts.length-1].toUpperCase();
-  if(SIZE_TOKENS.includes(last) && parts.length>1){
-    return { base: parts.slice(0,-1).join(' '), size: last };
+  let parts = name.trim().split(/\s+/);
+  let size = null, color = null;
+
+  const lastUp = parts[parts.length-1].toUpperCase();
+  if(SIZE_TOKENS.includes(lastUp) && parts.length>1){
+    size = lastUp;
+    parts = parts.slice(0,-1);
   }
-  return { base: name, size: null };
+  const lastWord = parts[parts.length-1];
+  if(lastWord && COLOR_TOKENS.includes(lastWord) && parts.length>1){
+    color = lastWord;
+    parts = parts.slice(0,-1);
+  }
+
+  return { base: parts.join(' '), size, color };
 }
 
 function statusOf(p){
@@ -752,16 +763,21 @@ function renderList(){
 
   const groups = new Map();
   items.forEach(p=>{
-    const { base, size } = splitVariant(p.name);
+    const { base, size, color } = splitVariant(p.name);
     const key = base + '||' + p.category;
     if(!groups.has(key)) groups.set(key, { base, category:p.category, variants:[] });
-    groups.get(key).variants.push({ ...p, size: size || p.unit });
+    const label = [color, size].filter(Boolean).join(' ') || p.unit;
+    groups.get(key).variants.push({ ...p, size, color, label });
   });
 
   const sizeOrder = s => { const i = SIZE_TOKENS.indexOf((s||'').toUpperCase()); return i===-1?99:(SIZE_TOKENS.length-i); };
 
   const groupList = Array.from(groups.values()).map(g=>{
-    g.variants.sort((a,b)=> sizeOrder(b.size) - sizeOrder(a.size));
+    g.variants.sort((a,b)=>{
+      const c = (a.color||'').localeCompare(b.color||'', 'ar');
+      if(c!==0) return c;
+      return sizeOrder(b.size) - sizeOrder(a.size);
+    });
     const rankMap = {bad:0, warn:1, good:2};
     const worst = g.variants.reduce((acc,v)=>{
       const s = statusOf(v);
@@ -808,9 +824,9 @@ function renderList(){
       const pct = v.min>0 ? Math.min(100, Math.round((v.qty / (v.min*2)) * 100)) : (v.qty>0?100:0);
       const chip = document.createElement('button');
       chip.className = `variant-chip status-${status}`;
-      chip.setAttribute('aria-label', `${g.base} مقاس ${v.size}، الكمية ${v.qty}`);
+      chip.setAttribute('aria-label', `${g.base} ${v.label}، الكمية ${v.qty}`);
       chip.innerHTML = `
-        <span class="size">${escapeHtml(v.size)}</span>
+        <span class="size">${escapeHtml(v.label)}</span>
         <span class="healthbar"><span class="healthbar-fill" style="width:${pct}%"></span></span>
         <span class="qty num">${v.qty}</span>
       `;
