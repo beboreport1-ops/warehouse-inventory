@@ -84,13 +84,30 @@
     transition:transform .28s cubic-bezier(.4,0,.2,1), filter .28s;
   }
   #home{ z-index:1; }
-  #detail{
+  #groupScreen{
     z-index:2;
     transform:translateX(100%);
     background:var(--bg);
   }
+  #detail{
+    z-index:3;
+    transform:translateX(100%);
+    background:var(--bg);
+  }
+  body.group-open #groupScreen{ transform:translateX(0); }
+  body.group-open #home{ transform:translateX(-6%); filter:brightness(.55); }
   body.detail-open #detail{ transform:translateX(0); }
   body.detail-open #home{ transform:translateX(-6%); filter:brightness(.55); }
+  body.group-open.detail-open #groupScreen{ transform:translateX(-6%); filter:brightness(.55); }
+
+  .group-detail-list{
+    flex:1;
+    overflow-y:auto;
+    padding:var(--space-4);
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
 
   .home-top{
     padding:20px var(--space-4) var(--space-3);
@@ -219,7 +236,15 @@
     justify-content:space-between;
     gap:var(--space-2);
     margin-bottom:var(--space-3);
+    width:100%;
+    background:none;
+    border:none;
+    color:inherit;
+    text-align:inherit;
+    padding:0;
+    font:inherit;
   }
+  .group-head:active{ opacity:.75; }
   .group-name{
     font-size:15.5px;
     font-weight:700;
@@ -262,7 +287,7 @@
   .variant-chip .size{
     font-size:13px;
     font-weight:700;
-    min-width:56px;
+    width:22px;
     flex-shrink:0;
     color:var(--text-dim);
   }
@@ -571,6 +596,23 @@
   </div>
 </div>
 
+<div class="screen" id="groupScreen" role="dialog" aria-modal="true" aria-labelledby="gName">
+  <div class="detail-header">
+    <button class="icon-btn" onclick="closeGroupDetail()" aria-label="رجوع للقائمة">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+    <div class="detail-header-title">
+      <div class="n" id="gName">—</div>
+      <div class="s" id="gCat">—</div>
+    </div>
+    <div class="group-total">
+      <div class="n num" id="gTotal">0</div>
+      <div class="l">إجمالي</div>
+    </div>
+  </div>
+  <div class="group-detail-list" id="groupList" role="list"></div>
+</div>
+
 <div class="screen" id="detail" role="dialog" aria-modal="true" aria-labelledby="dName">
   <div class="detail-header">
     <button class="icon-btn" onclick="closeDetail()" aria-label="رجوع للقائمة">
@@ -699,29 +741,21 @@ sb.channel('products-changes')
         const p = products.find(x=>x.id===currentProductId);
         if(p) updateQtyDisplay(p, false);
       }
+      if(document.body.classList.contains('group-open')){
+        renderGroupScreen();
+      }
     });
   })
   .subscribe();
 
 const SIZE_TOKENS = ['XXL','XL','L','M','S','XS'];
-const COLOR_TOKENS = ['بني','كحلي','وردي','اسود','أسود','أبيض','ابيض','أصفر','اصفر','أحمر','احمر','أزرق','ازرق','أخضر','اخضر','رمادي','بيج','بنفسجي','ذهبي','فضي','برتقالي','فيروزي','كموني'];
-
 function splitVariant(name){
-  let parts = name.trim().split(/\s+/);
-  let size = null, color = null;
-
-  const lastUp = parts[parts.length-1].toUpperCase();
-  if(SIZE_TOKENS.includes(lastUp) && parts.length>1){
-    size = lastUp;
-    parts = parts.slice(0,-1);
+  const parts = name.trim().split(/\s+/);
+  const last = parts[parts.length-1].toUpperCase();
+  if(SIZE_TOKENS.includes(last) && parts.length>1){
+    return { base: parts.slice(0,-1).join(' '), size: last };
   }
-  const lastWord = parts[parts.length-1];
-  if(lastWord && COLOR_TOKENS.includes(lastWord) && parts.length>1){
-    color = lastWord;
-    parts = parts.slice(0,-1);
-  }
-
-  return { base: parts.join(' '), size, color };
+  return { base: name, size: null };
 }
 
 function statusOf(p){
@@ -763,21 +797,16 @@ function renderList(){
 
   const groups = new Map();
   items.forEach(p=>{
-    const { base, size, color } = splitVariant(p.name);
+    const { base, size } = splitVariant(p.name);
     const key = base + '||' + p.category;
     if(!groups.has(key)) groups.set(key, { base, category:p.category, variants:[] });
-    const label = [color, size].filter(Boolean).join(' ') || p.unit;
-    groups.get(key).variants.push({ ...p, size, color, label });
+    groups.get(key).variants.push({ ...p, size: size || p.unit, label: size || p.unit });
   });
 
   const sizeOrder = s => { const i = SIZE_TOKENS.indexOf((s||'').toUpperCase()); return i===-1?99:(SIZE_TOKENS.length-i); };
 
   const groupList = Array.from(groups.values()).map(g=>{
-    g.variants.sort((a,b)=>{
-      const c = (a.color||'').localeCompare(b.color||'', 'ar');
-      if(c!==0) return c;
-      return sizeOrder(b.size) - sizeOrder(a.size);
-    });
+    g.variants.sort((a,b)=> sizeOrder(b.size) - sizeOrder(a.size));
     const rankMap = {bad:0, warn:1, good:2};
     const worst = g.variants.reduce((acc,v)=>{
       const s = statusOf(v);
@@ -803,8 +832,10 @@ function renderList(){
     card.className = 'group-card';
     card.setAttribute('role','listitem');
 
-    const head = document.createElement('div');
+    const head = document.createElement('button');
     head.className = 'group-head';
+    head.type = 'button';
+    head.setAttribute('aria-label', `فتح ${g.base} — كل المقاسات`);
     head.innerHTML = `
       <div>
         <div class="group-name">${escapeHtml(g.base)}</div>
@@ -815,6 +846,7 @@ function renderList(){
         <div class="l">إجمالي</div>
       </div>
     `;
+    head.onclick = ()=>openGroupDetail(g.base, g.category);
     card.appendChild(head);
 
     const rowWrap = document.createElement('div');
@@ -858,8 +890,75 @@ function openDetail(id){
 
 function closeDetail(){
   document.body.classList.remove('detail-open');
+  if(document.body.classList.contains('group-open')){
+    renderGroupScreen();
+  } else {
+    renderFilters();
+    renderList();
+  }
+}
+
+/* ---------------- group (whole-product) screen ---------------- */
+let currentGroupBase = null;
+let currentGroupCategory = null;
+
+function openGroupDetail(base, category){
+  currentGroupBase = base;
+  currentGroupCategory = category;
+  renderGroupScreen();
+  document.body.classList.add('group-open');
+  $('groupScreen').querySelector('.icon-btn').focus();
+}
+
+function closeGroupDetail(){
+  document.body.classList.remove('group-open');
+  currentGroupBase = null;
+  currentGroupCategory = null;
   renderFilters();
   renderList();
+}
+
+function renderGroupScreen(){
+  if(currentGroupBase===null) return;
+  const variants = products
+    .filter(p=>{
+      const { base } = splitVariant(p.name);
+      return base===currentGroupBase && p.category===currentGroupCategory;
+    })
+    .map(p=>{
+      const { size } = splitVariant(p.name);
+      return { ...p, label: size || p.unit, size };
+    });
+
+  const sizeOrder = s => { const i = SIZE_TOKENS.indexOf((s||'').toUpperCase()); return i===-1?99:(SIZE_TOKENS.length-i); };
+  variants.sort((a,b)=> sizeOrder(b.size) - sizeOrder(a.size));
+
+  const total = variants.reduce((a,v)=>a+v.qty,0);
+
+  $('gName').textContent = currentGroupBase;
+  $('gCat').textContent = currentGroupCategory;
+  $('gTotal').textContent = total;
+
+  const wrap = $('groupList');
+  wrap.innerHTML = '';
+  if(variants.length===0){
+    wrap.innerHTML = '<div class="empty-state">تم حذف هذا المنتج</div>';
+    return;
+  }
+  variants.forEach(v=>{
+    const status = statusOf(v);
+    const pct = v.min>0 ? Math.min(100, Math.round((v.qty / (v.min*2)) * 100)) : (v.qty>0?100:0);
+    const chip = document.createElement('button');
+    chip.className = `variant-chip status-${status}`;
+    chip.setAttribute('aria-label', `${currentGroupBase} ${v.label}، الكمية ${v.qty}`);
+    chip.innerHTML = `
+      <span class="size">${escapeHtml(v.label)}</span>
+      <span class="healthbar"><span class="healthbar-fill" style="width:${pct}%"></span></span>
+      <span class="qty num">${v.qty}</span>
+    `;
+    chip.onclick = ()=>openDetail(v.id);
+    wrap.appendChild(chip);
+  });
 }
 
 function updateQtyDisplay(p, animate){
@@ -1013,6 +1112,7 @@ document.addEventListener('keydown', e=>{
   if(e.key==='Escape'){
     document.querySelectorAll('.modal-backdrop.open').forEach(m=>closeModal(m.id));
     if(document.body.classList.contains('detail-open')) closeDetail();
+    else if(document.body.classList.contains('group-open')) closeGroupDetail();
   }
 });
 
