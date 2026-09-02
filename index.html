@@ -5,25 +5,47 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>إدارة المخزون</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
+  /* ============================================================
+     نظام التصميم — لغة "صناعية موثوقة" لأداة تشغيلية يومية
+     العلامة: أزرق إشارة. الحالة: أخضر/كهرماني/أحمر (محجوزة للمخزون فقط)
+     ============================================================ */
   :root{
-    --bg:#14171a;
-    --surface:#1c2024;
-    --surface-2:#242830;
-    --line:#2e333a;
-    --text:#edeff1;
-    --text-dim:#8b939b;
-    --accent:#f2a93b;
-    --accent-dim:#7a5a24;
-    --good:#3fb950;
-    --good-press:#2f9143;
-    --bad:#e5484d;
-    --bad-press:#c93c40;
+    --bg:#0e1013;
+    --surface:#16191d;
+    --surface-2:#1e2227;
+    --surface-3:#262b31;
+    --line:#2a2f36;
+    --line-soft:#20242a;
+    --text:#eef0f2;
+    --text-dim:#8b929b;
+    --text-faint:#5c636b;
+
+    --brand:#4c8dff;
+    --brand-press:#3a74e0;
+
+    --good:#33c17a;
+    --warn:#e0a531;
+    --bad:#ef5350;
+    --bad-bg:rgba(239,83,80,.14);
+    --bad-press:#d0413e;
+
     --radius-s:10px;
-    --radius-m:16px;
+    --radius-m:14px;
+    --radius-l:20px;
+
+    --space-2:8px;
+    --space-3:12px;
+    --space-4:16px;
+    --space-5:24px;
+    --space-6:32px;
+
+    --focus-ring: 0 0 0 3px rgba(76,141,255,.45);
   }
+
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{height:100%;}
   body{
@@ -34,45 +56,67 @@
     overflow-x:hidden;
     -webkit-user-select:none;
     user-select:none;
+    -webkit-font-smoothing:antialiased;
   }
   input,button{font-family:inherit;}
+  .num, .tabular{
+    font-family:'IBM Plex Mono', monospace;
+    font-variant-numeric:tabular-nums;
+    font-feature-settings:"tnum" 1;
+  }
 
-  /* ---------- App shell / transitions ---------- */
+  button{ cursor:pointer; }
+  button:focus-visible,
+  input:focus-visible,
+  [tabindex]:focus-visible{
+    outline:none;
+    box-shadow:var(--focus-ring);
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+  }
+
   .screen{
     position:fixed;
     inset:0;
     display:flex;
     flex-direction:column;
-    transition:transform .28s cubic-bezier(.4,0,.2,1), opacity .28s;
+    transition:transform .28s cubic-bezier(.4,0,.2,1), filter .28s;
   }
   #home{ z-index:1; }
   #detail{
     z-index:2;
     transform:translateX(100%);
+    background:var(--bg);
   }
   body.detail-open #detail{ transform:translateX(0); }
-  body.detail-open #home{ transform:translateX(-6%); filter:brightness(.6); }
+  body.detail-open #home{ transform:translateX(-6%); filter:brightness(.55); }
 
-  /* ---------- HOME ---------- */
   .home-top{
-    padding:22px 18px 14px;
+    padding:20px var(--space-4) var(--space-3);
     border-bottom:1px solid var(--line);
     flex-shrink:0;
   }
-  .home-top h1{
-    margin:0 0 14px;
-    font-size:22px;
-    font-weight:700;
-    letter-spacing:.2px;
+  .home-top-row{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom:var(--space-4);
   }
-  .home-top .count{
+  .home-top h1{
+    margin:0;
+    font-size:21px;
+    font-weight:700;
+    letter-spacing:.1px;
+  }
+  .home-top .subcount{
     color:var(--text-dim);
+    font-size:13px;
     font-weight:500;
-    font-size:15px;
   }
   .search-row{
     display:flex;
-    gap:8px;
+    gap:var(--space-2);
   }
   .search-wrap{
     position:relative;
@@ -83,7 +127,8 @@
     right:14px;
     top:50%;
     transform:translateY(-50%);
-    opacity:.5;
+    color:var(--text-faint);
+    pointer-events:none;
   }
   #search{
     width:100%;
@@ -91,28 +136,31 @@
     border:1px solid var(--line);
     color:var(--text);
     border-radius:var(--radius-s);
-    padding:13px 42px 13px 14px;
+    padding:12px 42px 12px 14px;
     font-size:15px;
     outline:none;
+    min-height:44px;
   }
-  #search:focus{ border-color:var(--accent-dim); }
-  #search::placeholder{ color:var(--text-dim); }
+  #search::placeholder{ color:var(--text-faint); }
   .add-btn{
     flex-shrink:0;
-    width:48px;
-    background:var(--accent);
+    width:46px;
+    min-height:44px;
+    background:var(--brand);
     border:none;
     border-radius:var(--radius-s);
-    color:#1a1300;
-    font-size:26px;
+    color:#fff;
+    font-size:24px;
     font-weight:600;
     line-height:1;
-    cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
   }
+  .add-btn:active{ background:var(--brand-press); }
+
   .filter-row{
     display:flex;
-    gap:8px;
-    margin-top:10px;
+    gap:var(--space-2);
+    margin-top:var(--space-3);
     overflow-x:auto;
     padding-bottom:2px;
   }
@@ -122,137 +170,160 @@
     border:1px solid var(--line);
     color:var(--text-dim);
     padding:7px 14px;
+    min-height:34px;
     border-radius:999px;
     font-size:13px;
-    cursor:pointer;
-    white-space:nowrap;
+    font-weight:500;
   }
   .filter-chip.active{
-    background:var(--accent);
-    border-color:var(--accent);
-    color:#1a1300;
+    background:var(--brand);
+    border-color:var(--brand);
+    color:#fff;
     font-weight:600;
   }
 
   .list{
     flex:1;
     overflow-y:auto;
-    padding:14px;
+    padding:var(--space-3) var(--space-4) var(--space-6);
     display:flex;
     flex-direction:column;
-    gap:10px;
+    gap:var(--space-3);
+  }
+  @media (min-width:640px){
+    .list{
+      display:grid;
+      grid-template-columns:repeat(2,1fr);
+      align-content:start;
+    }
+  }
+  @media (min-width:960px){
+    .list{ grid-template-columns:repeat(3,1fr); }
   }
   .empty-state{
+    grid-column:1/-1;
     margin-top:60px;
     text-align:center;
     color:var(--text-dim);
+    font-size:14px;
   }
 
-  .card{
+  .group-card{
     background:var(--surface);
     border:1px solid var(--line);
-    border-radius:var(--radius-m);
-    padding:14px 16px;
+    border-radius:var(--radius-l);
+    padding:var(--space-4);
+    align-self:start;
+  }
+  .group-head{
     display:flex;
-    align-items:center;
-    gap:12px;
-    cursor:pointer;
-    transition:background .15s;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:var(--space-2);
+    margin-bottom:var(--space-3);
   }
-  .card:active{ background:var(--surface-2); }
-  .card-main{ flex:1; min-width:0; }
-  .card-name{
+  .group-name{
     font-size:15.5px;
-    font-weight:600;
-    margin:0 0 4px;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
+    font-weight:700;
+    line-height:1.35;
   }
-  .card-sku{
-    font-family:'IBM Plex Mono',monospace;
+  .group-cat{
     font-size:12px;
     color:var(--text-dim);
-    letter-spacing:.3px;
+    margin-top:2px;
   }
-  .card-qty-wrap{
+  .group-total{
     text-align:left;
     flex-shrink:0;
   }
-  .card-qty{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:22px;
+  .group-total .n{
+    font-size:19px;
     font-weight:600;
   }
-  .card-unit{
-    font-size:11px;
-    color:var(--text-dim);
-    margin-top:1px;
+  .group-total .l{
+    font-size:10.5px;
+    color:var(--text-faint);
   }
-  .low-dot{
-    display:inline-block;
-    width:8px;height:8px;
-    border-radius:50%;
-    background:var(--bad);
-    margin-left:6px;
-    vertical-align:middle;
-  }
-  .card.low .card-qty{ color:var(--bad); }
 
-  /* quick +/- on the card itself, thumb-reachable in a list */
-  .quick-btns{
+  .variant-row{
     display:flex;
     flex-direction:column;
-    gap:4px;
+    gap:6px;
+  }
+  .variant-chip{
+    display:flex;
+    align-items:center;
+    gap:var(--space-3);
+    background:var(--surface-2);
+    border:1px solid var(--line-soft);
+    border-radius:var(--radius-s);
+    padding:9px 12px;
+    min-height:44px;
+    width:100%;
+  }
+  .variant-chip .size{
+    font-size:13px;
+    font-weight:700;
+    width:22px;
+    flex-shrink:0;
+    color:var(--text-dim);
+  }
+  .variant-chip .healthbar{
+    flex:1;
+    height:6px;
+    border-radius:999px;
+    background:var(--surface-3);
+    overflow:hidden;
+  }
+  .variant-chip .healthbar-fill{
+    height:100%;
+    border-radius:999px;
+    transition:width .3s ease;
+  }
+  .variant-chip .qty{
+    font-size:14.5px;
+    font-weight:600;
+    width:30px;
+    text-align:left;
     flex-shrink:0;
   }
-  .quick-btn{
-    width:34px;height:28px;
-    border:none;
-    border-radius:7px;
-    font-size:16px;
-    font-weight:700;
-    line-height:1;
-    cursor:pointer;
-  }
-  .quick-btn.plus{ background:rgba(63,185,80,.18); color:var(--good); }
-  .quick-btn.minus{ background:rgba(229,72,77,.18); color:var(--bad); }
-  .quick-btn:active.plus{ background:var(--good); color:#08210c; }
-  .quick-btn:active.minus{ background:var(--bad); color:#2a0a0a; }
+  .variant-chip.status-good .qty{ color:var(--good); }
+  .variant-chip.status-warn .qty{ color:var(--warn); }
+  .variant-chip.status-bad .qty{ color:var(--bad); }
+  .variant-chip.status-good .healthbar-fill{ background:var(--good); }
+  .variant-chip.status-warn .healthbar-fill{ background:var(--warn); }
+  .variant-chip.status-bad .healthbar-fill{ background:var(--bad); }
 
-  /* ---------- DETAIL ---------- */
-  #detail{ background:var(--bg); }
   .detail-header{
     display:flex;
     align-items:center;
-    gap:10px;
-    padding:16px 14px;
+    gap:var(--space-2);
+    padding:16px var(--space-3);
     border-bottom:1px solid var(--line);
     flex-shrink:0;
   }
   .icon-btn{
-    width:38px;height:38px;
-    border-radius:10px;
+    width:44px;height:44px;
+    border-radius:var(--radius-s);
     background:var(--surface);
     border:1px solid var(--line);
     color:var(--text);
     display:flex;align-items:center;justify-content:center;
-    cursor:pointer;
     flex-shrink:0;
   }
+  .icon-btn:active{ background:var(--surface-2); }
   .detail-header-title{
     flex:1;
     min-width:0;
   }
   .detail-header-title .n{
     font-weight:700;
-    font-size:16px;
+    font-size:15.5px;
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
   }
   .detail-header-title .s{
-    font-family:'IBM Plex Mono',monospace;
     font-size:12px;
     color:var(--text-dim);
   }
@@ -263,8 +334,8 @@
     flex-direction:column;
     align-items:center;
     justify-content:center;
-    gap:6px;
-    padding:10px 20px;
+    gap:var(--space-2);
+    padding:10px var(--space-5);
   }
   .qty-label{
     color:var(--text-dim);
@@ -272,40 +343,41 @@
     font-weight:500;
   }
   .qty-number{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:96px;
+    font-size:clamp(64px, 22vw, 100px);
     font-weight:700;
     line-height:1;
     transition:transform .12s;
   }
-  .qty-number.bump{ transform:scale(1.08); }
+  .qty-number.bump{ transform:scale(1.07); }
   .qty-unit{ color:var(--text-dim); font-size:15px; }
   .qty-lowflag{
-    margin-top:8px;
-    background:rgba(229,72,77,.14);
+    margin-top:var(--space-2);
+    background:var(--bad-bg);
     color:var(--bad);
-    border:1px solid rgba(229,72,77,.35);
+    border:1px solid rgba(239,83,80,.35);
     padding:6px 14px;
     border-radius:999px;
     font-size:13px;
     font-weight:600;
   }
   .manual-edit-link{
-    margin-top:16px;
+    margin-top:var(--space-4);
     background:none;
     border:none;
-    color:var(--accent);
+    color:var(--brand);
     font-size:14px;
     font-weight:600;
-    cursor:pointer;
-    padding:8px;
+    padding:10px 14px;
+    min-height:44px;
+    border-radius:var(--radius-s);
   }
+  .manual-edit-link:active{ background:var(--surface-2); }
 
   .big-buttons{
     display:flex;
     flex-shrink:0;
-    height:34vh;
-    min-height:220px;
+    height:32dvh;
+    min-height:200px;
   }
   .big-btn{
     flex:1;
@@ -315,22 +387,20 @@
     align-items:center;
     justify-content:center;
     gap:6px;
-    cursor:pointer;
-    font-family:'IBM Plex Mono',monospace;
     color:#fff;
     transition:filter .08s;
   }
-  .big-btn .sym{ font-size:56px; font-weight:700; line-height:1; }
-  .big-btn .lbl{ font-family:'IBM Plex Sans Arabic',sans-serif; font-size:14px; font-weight:600; opacity:.85; }
-  .big-btn.minus{ background:var(--bad); border-radius:0 24px 0 0;}
-  .big-btn.plus{ background:var(--good); border-radius:24px 0 0 0;}
+  .big-btn .sym{ font-family:'IBM Plex Mono',monospace; font-size:52px; font-weight:700; line-height:1; }
+  .big-btn .lbl{ font-size:14px; font-weight:600; opacity:.9; }
+  .big-btn.minus{ background:var(--bad); border-radius:0 22px 0 0;}
+  .big-btn.plus{ background:var(--good); border-radius:22px 0 0 0;}
   .big-btn.minus:active{ background:var(--bad-press); }
-  .big-btn.plus:active{ background:var(--good-press); }
+  .big-btn.plus:active{ background:#289b62; }
 
   .detail-footer{
     display:flex;
-    gap:10px;
-    padding:12px 14px 18px;
+    gap:var(--space-2);
+    padding:var(--space-3) var(--space-3) calc(var(--space-4) + env(safe-area-inset-bottom));
     flex-shrink:0;
     border-top:1px solid var(--line);
     background:var(--bg);
@@ -341,17 +411,17 @@
     border:1px solid var(--line);
     color:var(--text);
     padding:12px;
+    min-height:44px;
     border-radius:var(--radius-s);
     font-size:14px;
     font-weight:600;
-    cursor:pointer;
   }
-  .ghost-btn.danger{ color:var(--bad); }
+  .ghost-btn:active{ background:var(--surface-2); }
+  .ghost-btn.danger{ color:var(--bad); border-color:rgba(239,83,80,.3); }
 
-  /* ---------- Modal (manual qty / add / edit product) ---------- */
   .modal-backdrop{
     position:fixed; inset:0;
-    background:rgba(0,0,0,.55);
+    background:rgba(0,0,0,.6);
     z-index:10;
     display:flex;
     align-items:flex-end;
@@ -363,20 +433,22 @@
   .modal-sheet{
     width:100%;
     background:var(--surface);
-    border-radius:20px 20px 0 0;
-    padding:20px 18px calc(20px + env(safe-area-inset-bottom));
-    transform:translateY(20px);
+    border:1px solid var(--line);
+    border-bottom:none;
+    border-radius:var(--radius-l) var(--radius-l) 0 0;
+    padding:20px var(--space-4) calc(20px + env(safe-area-inset-bottom));
+    transform:translateY(16px);
     transition:transform .22s;
-    max-height:85vh;
+    max-height:85dvh;
     overflow-y:auto;
   }
   .modal-backdrop.open .modal-sheet{ transform:translateY(0); }
   .modal-title{
-    font-size:17px;
+    font-size:16.5px;
     font-weight:700;
-    margin:0 0 16px;
+    margin:0 0 var(--space-4);
   }
-  .field{ margin-bottom:14px; }
+  .field{ margin-bottom:var(--space-3); }
   .field label{
     display:block;
     font-size:13px;
@@ -391,51 +463,51 @@
     color:var(--text);
     border-radius:var(--radius-s);
     padding:12px 14px;
+    min-height:44px;
     font-size:15px;
     outline:none;
   }
-  .field input:focus{ border-color:var(--accent-dim); }
   .field input.big-num{
     font-family:'IBM Plex Mono',monospace;
-    font-size:22px;
+    font-size:20px;
     font-weight:600;
     text-align:center;
   }
   .modal-actions{
     display:flex;
-    gap:10px;
-    margin-top:18px;
+    gap:var(--space-2);
+    margin-top:var(--space-4);
   }
   .btn-solid{
     flex:1;
-    background:var(--accent);
-    color:#1a1300;
+    background:var(--brand);
+    color:#fff;
     border:none;
     padding:14px;
+    min-height:48px;
     border-radius:var(--radius-s);
     font-size:15px;
     font-weight:700;
-    cursor:pointer;
   }
+  .btn-solid:active{ background:var(--brand-press); }
   .btn-cancel{
     flex:1;
     background:var(--surface-2);
     color:var(--text);
     border:1px solid var(--line);
     padding:14px;
+    min-height:48px;
     border-radius:var(--radius-s);
     font-size:15px;
     font-weight:600;
-    cursor:pointer;
   }
 
-  /* toast */
   .toast{
     position:fixed;
-    bottom:18px;
+    bottom:calc(18px + env(safe-area-inset-bottom));
     left:50%;
     transform:translate(-50%,20px);
-    background:var(--surface-2);
+    background:var(--surface-3);
     border:1px solid var(--line);
     color:var(--text);
     padding:11px 20px;
@@ -446,60 +518,64 @@
     transition:opacity .2s, transform .2s;
     pointer-events:none;
     white-space:nowrap;
+    max-width:88vw;
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
   .toast.show{ opacity:1; transform:translate(-50%,0); }
 </style>
 </head>
 <body>
 
-<!-- ================= HOME ================= -->
 <div class="screen" id="home">
   <div class="home-top">
-    <h1>المخزون</h1>
+    <div class="home-top-row">
+      <h1>المخزون</h1>
+      <span class="subcount" id="subcount" aria-live="polite"></span>
+    </div>
     <div class="search-row">
       <div class="search-wrap">
-        <input id="search" placeholder="ابحث بالاسم أو الكود...">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8b939b" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="search" placeholder="ابحث بالاسم أو الكود..." aria-label="بحث في المنتجات">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       </div>
-      <button class="add-btn" onclick="openAddModal()">+</button>
+      <button class="add-btn" onclick="openAddModal()" aria-label="إضافة منتج جديد">+</button>
     </div>
-    <div class="filter-row" id="filterRow"></div>
+    <div class="filter-row" id="filterRow" role="tablist" aria-label="تصفية حسب التصنيف"></div>
   </div>
-  <div class="list" id="list">
+  <div class="list" id="list" role="list">
     <div class="empty-state" id="loadingState">جارِ التحميل...</div>
   </div>
 </div>
 
-<!-- ================= DETAIL ================= -->
-<div class="screen" id="detail">
+<div class="screen" id="detail" role="dialog" aria-modal="true" aria-labelledby="dName">
   <div class="detail-header">
-    <button class="icon-btn" onclick="closeDetail()">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+    <button class="icon-btn" onclick="closeDetail()" aria-label="رجوع للقائمة">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
     </button>
     <div class="detail-header-title">
       <div class="n" id="dName">—</div>
-      <div class="s" id="dSku">—</div>
+      <div class="s num" id="dSku">—</div>
     </div>
-    <button class="icon-btn" onclick="openEditModal()">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+    <button class="icon-btn" onclick="openEditModal()" aria-label="تعديل بيانات المنتج">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
     </button>
   </div>
 
   <div class="qty-stage">
     <div class="qty-label">الكمية الحالية</div>
-    <div class="qty-number" id="dQty">0</div>
+    <div class="qty-number num" id="dQty" aria-live="polite">0</div>
     <div class="qty-unit" id="dUnit">قطعة</div>
-    <div class="qty-lowflag" id="dLowFlag" style="display:none">الكمية أقل من الحد الأدنى</div>
+    <div class="qty-lowflag" id="dLowFlag" style="display:none" role="status">الكمية أقل من الحد الأدنى</div>
     <button class="manual-edit-link" onclick="openManualQtyModal()">تعديل الكمية يدوياً (شحنة جديدة)</button>
   </div>
 
   <div class="big-buttons">
-    <button class="big-btn plus" onclick="bump(1)">
-      <span class="sym">+1</span>
+    <button class="big-btn plus" onclick="bump(1)" aria-label="زيادة الكمية بمقدار واحد">
+      <span class="sym" aria-hidden="true">+1</span>
       <span class="lbl">إضافة</span>
     </button>
-    <button class="big-btn minus" onclick="bump(-1)">
-      <span class="sym">−1</span>
+    <button class="big-btn minus" onclick="bump(-1)" aria-label="إنقاص الكمية بمقدار واحد">
+      <span class="sym" aria-hidden="true">−1</span>
       <span class="lbl">خصم / بيع</span>
     </button>
   </div>
@@ -510,12 +586,11 @@
   </div>
 </div>
 
-<!-- ================= MODAL: manual quantity ================= -->
-<div class="modal-backdrop" id="modalManualQty">
+<div class="modal-backdrop" id="modalManualQty" role="dialog" aria-modal="true" aria-labelledby="manualQtyTitle">
   <div class="modal-sheet">
-    <div class="modal-title">تعديل الكمية يدوياً</div>
+    <div class="modal-title" id="manualQtyTitle">تعديل الكمية يدوياً</div>
     <div class="field">
-      <label>الكمية الجديدة</label>
+      <label for="manualQtyInput">الكمية الجديدة</label>
       <input type="number" inputmode="numeric" class="big-num" id="manualQtyInput">
     </div>
     <div class="modal-actions">
@@ -525,32 +600,31 @@
   </div>
 </div>
 
-<!-- ================= MODAL: add / edit product ================= -->
-<div class="modal-backdrop" id="modalProduct">
+<div class="modal-backdrop" id="modalProduct" role="dialog" aria-modal="true" aria-labelledby="productModalTitle">
   <div class="modal-sheet">
     <div class="modal-title" id="productModalTitle">إضافة منتج جديد</div>
     <div class="field">
-      <label>اسم المنتج</label>
-      <input type="text" id="pfName" placeholder="مثال: تيشيرت رياضي أسود M">
+      <label for="pfName">اسم المنتج</label>
+      <input type="text" id="pfName" placeholder="مثال: سترابس 8 بني L">
     </div>
     <div class="field">
-      <label>الكود / SKU</label>
-      <input type="text" id="pfSku" placeholder="مثال: BLK-TEE-M">
+      <label for="pfSku">الكود / SKU</label>
+      <input type="text" id="pfSku" placeholder="مثال: STRAP8-BRN-L">
     </div>
     <div class="field">
-      <label>التصنيف</label>
-      <input type="text" id="pfCategory" placeholder="مثال: ملابس">
+      <label for="pfCategory">التصنيف</label>
+      <input type="text" id="pfCategory" placeholder="مثال: سترابس">
     </div>
     <div class="field">
-      <label>الكمية الحالية</label>
+      <label for="pfQty">الكمية الحالية</label>
       <input type="number" inputmode="numeric" id="pfQty" placeholder="0">
     </div>
     <div class="field">
-      <label>الحد الأدنى للتنبيه</label>
+      <label for="pfMin">الحد الأدنى للتنبيه</label>
       <input type="number" inputmode="numeric" id="pfMin" placeholder="5">
     </div>
     <div class="field">
-      <label>وحدة القياس</label>
+      <label for="pfUnit">وحدة القياس</label>
       <input type="text" id="pfUnit" placeholder="قطعة">
     </div>
     <div class="modal-actions">
@@ -560,12 +634,9 @@
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
-/* ============================================================
-   الاتصال بـ Supabase
-   ============================================================ */
 const SUPABASE_URL = 'https://xxiodivfhkukofsjtrcq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh4aW9kaXZmaGt1a29mc2p0cmNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDIzODEsImV4cCI6MjEwMzkxODM4MX0.C89zmJRgishZfVo6UAvNzO-uqD2ck8b21WakKpktt2I';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -576,7 +647,6 @@ let activeCategory = 'الكل';
 
 const $ = id => document.getElementById(id);
 
-/* تحويل صف قاعدة البيانات لشكل يستخدمه الواجهة */
 function fromRow(r){
   return { id:r.id, name:r.name, sku:r.sku, category:r.category, qty:r.qty, min:r.min_qty, unit:r.unit };
 }
@@ -590,9 +660,8 @@ async function loadProducts(){
   renderList();
 }
 
-/* مزامنة فورية: أي تعديل من جهاز آخر ينعكس هنا تلقائياً */
 sb.channel('products-changes')
-  .on('postgres_changes', { event:'*', schema:'public', table:'products' }, payload=>{
+  .on('postgres_changes', { event:'*', schema:'public', table:'products' }, ()=>{
     loadProducts().then(()=>{
       if(document.body.classList.contains('detail-open') && currentProductId){
         const p = products.find(x=>x.id===currentProductId);
@@ -602,7 +671,22 @@ sb.channel('products-changes')
   })
   .subscribe();
 
-/* ---------------- render home ---------------- */
+const SIZE_TOKENS = ['XXL','XL','L','M','S','XS'];
+function splitVariant(name){
+  const parts = name.trim().split(/\s+/);
+  const last = parts[parts.length-1].toUpperCase();
+  if(SIZE_TOKENS.includes(last) && parts.length>1){
+    return { base: parts.slice(0,-1).join(' '), size: last };
+  }
+  return { base: name, size: null };
+}
+
+function statusOf(p){
+  if(p.qty <= 0) return 'bad';
+  if(p.qty <= p.min) return 'warn';
+  return 'good';
+}
+
 function categories(){
   const set = new Set(products.map(p=>p.category));
   return ['الكل', ...set];
@@ -615,6 +699,8 @@ function renderFilters(){
     const chip = document.createElement('button');
     chip.className = 'filter-chip' + (c===activeCategory?' active':'');
     chip.textContent = c;
+    chip.setAttribute('role','tab');
+    chip.setAttribute('aria-selected', c===activeCategory ? 'true':'false');
     chip.onclick = ()=>{ activeCategory = c; renderFilters(); renderList(); };
     row.appendChild(chip);
   });
@@ -623,71 +709,93 @@ function renderFilters(){
 function renderList(){
   const q = $('search').value.trim().toLowerCase();
   const list = $('list');
+
   let items = products.filter(p=>{
     const matchQ = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
     const matchC = activeCategory==='الكل' || p.category===activeCategory;
     return matchQ && matchC;
   });
 
-  list.innerHTML = '';
-  $('home').querySelector('.count') && $('home').querySelector('.count').remove();
+  $('subcount').textContent = items.length ? `${items.length} منتج` : '';
 
-  if(items.length===0){
+  const groups = new Map();
+  items.forEach(p=>{
+    const { base, size } = splitVariant(p.name);
+    const key = base + '||' + p.category;
+    if(!groups.has(key)) groups.set(key, { base, category:p.category, variants:[] });
+    groups.get(key).variants.push({ ...p, size: size || p.unit });
+  });
+
+  const sizeOrder = s => { const i = SIZE_TOKENS.indexOf((s||'').toUpperCase()); return i===-1?99:(SIZE_TOKENS.length-i); };
+
+  const groupList = Array.from(groups.values()).map(g=>{
+    g.variants.sort((a,b)=> sizeOrder(b.size) - sizeOrder(a.size));
+    const rankMap = {bad:0, warn:1, good:2};
+    const worst = g.variants.reduce((acc,v)=>{
+      const s = statusOf(v);
+      return rankMap[s] < rankMap[acc] ? s : acc;
+    }, 'good');
+    g.worst = worst;
+    g.total = g.variants.reduce((a,v)=>a+v.qty,0);
+    return g;
+  });
+
+  const rankMap = {bad:0, warn:1, good:2};
+  groupList.sort((a,b)=> rankMap[a.worst]-rankMap[b.worst]);
+
+  list.innerHTML = '';
+
+  if(groupList.length===0){
     list.innerHTML = '<div class="empty-state">لا توجد منتجات مطابقة</div>';
     return;
   }
 
-  items.forEach(p=>{
-    const low = p.qty <= p.min;
+  groupList.forEach(g=>{
     const card = document.createElement('div');
-    card.className = 'card' + (low?' low':'');
-    card.innerHTML = `
-      <div class="card-main">
-        <p class="card-name">${escapeHtml(p.name)}${low?'<span class="low-dot"></span>':''}</p>
-        <div class="card-sku">${escapeHtml(p.sku)}</div>
+    card.className = 'group-card';
+    card.setAttribute('role','listitem');
+
+    const head = document.createElement('div');
+    head.className = 'group-head';
+    head.innerHTML = `
+      <div>
+        <div class="group-name">${escapeHtml(g.base)}</div>
+        <div class="group-cat">${escapeHtml(g.category)}</div>
       </div>
-      <div class="quick-btns">
-        <button class="quick-btn plus">+</button>
-        <button class="quick-btn minus">−</button>
-      </div>
-      <div class="card-qty-wrap">
-        <div class="card-qty">${p.qty}</div>
-        <div class="card-unit">${escapeHtml(p.unit)}</div>
+      <div class="group-total">
+        <div class="n num">${g.total}</div>
+        <div class="l">إجمالي</div>
       </div>
     `;
-    card.querySelector('.card-main').onclick = ()=>openDetail(p.id);
-    card.querySelector('.card-qty-wrap').onclick = ()=>openDetail(p.id);
-    card.querySelector('.quick-btn.plus').onclick = (e)=>{ e.stopPropagation(); quickBump(p.id,1); };
-    card.querySelector('.quick-btn.minus').onclick = (e)=>{ e.stopPropagation(); quickBump(p.id,-1); };
+    card.appendChild(head);
+
+    const rowWrap = document.createElement('div');
+    rowWrap.className = 'variant-row';
+    g.variants.forEach(v=>{
+      const status = statusOf(v);
+      const pct = v.min>0 ? Math.min(100, Math.round((v.qty / (v.min*2)) * 100)) : (v.qty>0?100:0);
+      const chip = document.createElement('button');
+      chip.className = `variant-chip status-${status}`;
+      chip.setAttribute('aria-label', `${g.base} مقاس ${v.size}، الكمية ${v.qty}`);
+      chip.innerHTML = `
+        <span class="size">${escapeHtml(v.size)}</span>
+        <span class="healthbar"><span class="healthbar-fill" style="width:${pct}%"></span></span>
+        <span class="qty num">${v.qty}</span>
+      `;
+      chip.onclick = ()=>openDetail(v.id);
+      rowWrap.appendChild(chip);
+    });
+    card.appendChild(rowWrap);
     list.appendChild(card);
   });
 }
 
-async function quickBump(id, delta){
-  const p = products.find(x=>x.id===id);
-  if(!p) return;
-  const prevQty = p.qty;
-  const newQty = Math.max(0, p.qty + delta);
-  p.qty = newQty; // تحديث فوري في الواجهة
-  renderList();
-  showToast((delta>0?'+1 — ':'−1 — ') + p.name);
-  if(navigator.vibrate) navigator.vibrate(15);
-
-  const { error } = await sb.from('products').update({ qty:newQty }).eq('id', id);
-  if(error){ p.qty = prevQty; renderList(); showToast('فشل الحفظ، حاول مجدداً'); return; }
-  sb.from('stock_movements').insert({
-    product_id:id, change_amount:delta, previous_qty:prevQty, new_qty:newQty,
-    movement_type: delta>0 ? 'sale_or_use_increment' : 'sale_or_use_decrement'
-  }).then(()=>{});
-}
-
 function escapeHtml(s){
-  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
 $('search').addEventListener('input', renderList);
 
-/* ---------------- detail screen ---------------- */
 function openDetail(id){
   currentProductId = id;
   const p = products.find(x=>x.id===id);
@@ -697,6 +805,7 @@ function openDetail(id){
   $('dUnit').textContent = p.unit;
   updateQtyDisplay(p, false);
   document.body.classList.add('detail-open');
+  $('detail').querySelector('.icon-btn').focus();
 }
 
 function closeDetail(){
@@ -721,7 +830,7 @@ async function bump(delta){
   if(!p) return;
   const prevQty = p.qty;
   const newQty = Math.max(0, p.qty + delta);
-  p.qty = newQty; // تحديث فوري في الواجهة
+  p.qty = newQty;
   updateQtyDisplay(p, true);
   if(navigator.vibrate) navigator.vibrate(delta>0?15:[10,30,10]);
 
@@ -744,7 +853,6 @@ async function deleteProduct(){
   showToast('تم حذف المنتج');
 }
 
-/* ---------------- manual qty modal ---------------- */
 function openManualQtyModal(){
   const p = products.find(x=>x.id===currentProductId);
   $('manualQtyInput').value = p.qty;
@@ -768,7 +876,6 @@ async function saveManualQty(){
   showToast('تم تحديث الكمية');
 }
 
-/* ---------------- add / edit product modal ---------------- */
 function openAddModal(){
   currentProductId = null;
   $('productModalTitle').textContent = 'إضافة منتج جديد';
@@ -829,14 +936,18 @@ async function saveProductForm(){
   }
 }
 
-/* ---------------- modal helpers ---------------- */
 function openModal(id){ $(id).classList.add('open'); }
 function closeModal(id){ $(id).classList.remove('open'); }
 document.querySelectorAll('.modal-backdrop').forEach(m=>{
   m.addEventListener('click', e=>{ if(e.target===m) closeModal(m.id); });
 });
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape'){
+    document.querySelectorAll('.modal-backdrop.open').forEach(m=>closeModal(m.id));
+    if(document.body.classList.contains('detail-open')) closeDetail();
+  }
+});
 
-/* ---------------- toast ---------------- */
 let toastTimer;
 function showToast(msg){
   const t = $('toast');
@@ -846,7 +957,6 @@ function showToast(msg){
   toastTimer = setTimeout(()=>t.classList.remove('show'), 1600);
 }
 
-/* ---------------- init ---------------- */
 loadProducts();
 </script>
 </body>
