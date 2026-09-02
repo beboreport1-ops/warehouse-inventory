@@ -725,6 +725,10 @@
       <label for="manualQtyInput">الكمية الجديدة</label>
       <input type="number" inputmode="numeric" class="big-num" id="manualQtyInput">
     </div>
+    <div class="field" id="manualOddLeftoverField" style="display:none">
+      <label for="manualOddLeftoverInput">قطعة فردية زائدة (بدون زوج)</label>
+      <input type="number" inputmode="numeric" id="manualOddLeftoverInput" placeholder="0">
+    </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal('modalManualQty')">إلغاء</button>
       <button class="btn-solid" onclick="saveManualQty()">حفظ</button>
@@ -766,6 +770,10 @@
         <button type="button" class="toggle-btn" data-value="pair" role="radio" aria-checked="false" onclick="setUnitType('pair')">زوج<br>كل قطعتين = حبة</button>
       </div>
     </div>
+    <div class="field" id="pfOddLeftoverField" style="display:none">
+      <label for="pfOddLeftover">قطعة فردية زائدة (بدون زوج)</label>
+      <input type="number" inputmode="numeric" id="pfOddLeftover" placeholder="0">
+    </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal('modalProduct')">إلغاء</button>
       <button class="btn-solid" onclick="saveProductForm()">حفظ</button>
@@ -790,7 +798,7 @@ let lastGroupList = [];
 const $ = id => document.getElementById(id);
 
 function fromRow(r){
-  return { id:r.id, name:r.name, sku:r.sku, category:r.category, qty:r.qty, min:r.min_qty, unit:r.unit, unitType:r.unit_type || 'single' };
+  return { id:r.id, name:r.name, sku:r.sku, category:r.category, qty:r.qty, min:r.min_qty, unit:r.unit, unitType:r.unit_type || 'single', oddLeftover:r.odd_leftover || 0 };
 }
 
 async function loadProducts(){
@@ -933,7 +941,7 @@ function renderList(){
       chip.innerHTML = `
         <span class="size">${escapeHtml(v.label)}</span>
         <span class="healthbar"><span class="healthbar-fill" style="width:${pct}%"></span></span>
-        <span class="qty num">${v.qty}${v.unitType==='pair' ? `<span class="pieces">${v.qty*2} قطعة</span>` : ''}</span>
+        <span class="qty num">${v.qty}${v.unitType==='pair' ? `<span class="pieces">${v.qty*2} قطعة${v.oddLeftover>0 ? ' +'+v.oddLeftover+' فردية' : ''}</span>` : ''}</span>
       `;
       chip.onclick = ()=>{
         if(selectMode){ toggleGroupSelect(g.key); return; }
@@ -981,16 +989,18 @@ function updateSelectBar(){
 async function exportSelectedToClipboard(){
   if(selectedGroups.size===0){ showToast('اختر منتج واحد على الأقل'); return; }
 
+  const fmtQty = v => `${v.qty}${(v.unitType==='pair' && v.oddLeftover>0) ? ` (${v.oddLeftover} قطعة فردية)` : ''}`;
+
   const selected = lastGroupList.filter(g=>selectedGroups.has(g.key));
   const lines = [];
   selected.forEach(g=>{
     const isSingle = g.variants.length===1 && !g.variants[0].size;
     if(isSingle){
-      lines.push(`${g.base}: ${g.variants[0].qty}`);
+      lines.push(`${g.base}: ${fmtQty(g.variants[0])}`);
     } else {
       lines.push(g.base);
       g.variants.forEach(v=>{
-        lines.push(`    ${v.label}: ${v.qty}`);
+        lines.push(`    ${v.label}: ${fmtQty(v)}`);
       });
     }
     lines.push('');
@@ -1086,7 +1096,7 @@ function renderGroupScreen(){
     chip.innerHTML = `
       <span class="size">${escapeHtml(v.label)}</span>
       <span class="healthbar"><span class="healthbar-fill" style="width:${pct}%"></span></span>
-      <span class="qty num">${v.qty}${v.unitType==='pair' ? `<span class="pieces">${v.qty*2} قطعة</span>` : ''}</span>
+      <span class="qty num">${v.qty}${v.unitType==='pair' ? `<span class="pieces">${v.qty*2} قطعة${v.oddLeftover>0 ? ' +'+v.oddLeftover+' فردية' : ''}</span>` : ''}</span>
     `;
     chip.onclick = ()=>openDetail(v.id);
     wrap.appendChild(chip);
@@ -1099,7 +1109,9 @@ function updateQtyDisplay(p, animate){
   $('dLowFlag').style.display = (p.qty <= p.min) ? 'block' : 'none';
   const conv = $('dUnitConversion');
   if(p.unitType === 'pair'){
-    conv.textContent = `= ${p.qty * 2} قطعة فردية (زوج، كل قطعتين = حبة)`;
+    let txt = `= ${p.qty * 2} قطعة فردية (زوج، كل قطعتين = حبة)`;
+    if(p.oddLeftover > 0) txt += ` + ${p.oddLeftover} قطعة فردية بدون زوج`;
+    conv.textContent = txt;
     conv.style.display = 'block';
   } else {
     conv.style.display = 'none';
@@ -1142,6 +1154,12 @@ async function deleteProduct(){
 function openManualQtyModal(){
   const p = products.find(x=>x.id===currentProductId);
   $('manualQtyInput').value = p.qty;
+  if(p.unitType === 'pair'){
+    $('manualOddLeftoverField').style.display = 'block';
+    $('manualOddLeftoverInput').value = p.oddLeftover || 0;
+  } else {
+    $('manualOddLeftoverField').style.display = 'none';
+  }
   openModal('modalManualQty');
   setTimeout(()=>$('manualQtyInput').focus(), 250);
 }
@@ -1149,14 +1167,16 @@ async function saveManualQty(){
   const p = products.find(x=>x.id===currentProductId);
   const v = parseInt($('manualQtyInput').value, 10);
   if(isNaN(v) || v < 0){ showToast('أدخل رقماً صحيحاً'); return; }
+  const odd = p.unitType==='pair' ? Math.max(0, parseInt($('manualOddLeftoverInput').value,10) || 0) : p.oddLeftover;
   const prevQty = p.qty;
-  const { error } = await sb.from('products').update({ qty:v }).eq('id', currentProductId);
+  const { error } = await sb.from('products').update({ qty:v, odd_leftover:odd }).eq('id', currentProductId);
   if(error){ showToast('تعذر الحفظ'); return; }
   sb.from('stock_movements').insert({
     product_id:currentProductId, change_amount:v-prevQty, previous_qty:prevQty, new_qty:v,
     movement_type:'manual_correction'
   }).then(()=>{});
   p.qty = v;
+  p.oddLeftover = odd;
   updateQtyDisplay(p, true);
   closeModal('modalManualQty');
   showToast('تم تحديث الكمية');
@@ -1170,12 +1190,13 @@ function setUnitType(v){
     btn.classList.toggle('active', on);
     btn.setAttribute('aria-checked', on ? 'true':'false');
   });
+  $('pfOddLeftoverField').style.display = (v==='pair') ? 'block' : 'none';
 }
 
 function openAddModal(){
   currentProductId = null;
   $('productModalTitle').textContent = 'إضافة منتج جديد';
-  ['pfName','pfSku','pfCategory','pfQty','pfMin','pfUnit'].forEach(id=>$(id).value='');
+  ['pfName','pfSku','pfCategory','pfQty','pfMin','pfUnit','pfOddLeftover'].forEach(id=>$(id).value='');
   $('pfUnit').value = 'قطعة';
   $('pfMin').value = '5';
   setUnitType('single');
@@ -1192,6 +1213,7 @@ function openEditModal(){
   $('pfQty').value = p.qty;
   $('pfMin').value = p.min;
   $('pfUnit').value = p.unit;
+  $('pfOddLeftover').value = p.oddLeftover || 0;
   setUnitType(p.unitType || 'single');
   openModal('modalProduct');
 }
@@ -1212,6 +1234,7 @@ async function saveProductForm(){
     min_qty: Math.max(0, parseInt($('pfMin').value,10) || 0),
     unit: $('pfUnit').value.trim() || 'قطعة',
     unit_type: selectedUnitType,
+    odd_leftover: selectedUnitType==='pair' ? Math.max(0, parseInt($('pfOddLeftover').value,10) || 0) : 0,
   };
 
   if(currentProductId===null){
@@ -1225,7 +1248,7 @@ async function saveProductForm(){
     const { error } = await sb.from('products').update(data).eq('id', currentProductId);
     if(error){ showToast('تعذر حفظ التعديلات'); console.error(error); return; }
     const p = products.find(x=>x.id===currentProductId);
-    Object.assign(p, {name:data.name, sku:data.sku, category:data.category, qty:data.qty, min:data.min_qty, unit:data.unit, unitType:data.unit_type});
+    Object.assign(p, {name:data.name, sku:data.sku, category:data.category, qty:data.qty, min:data.min_qty, unit:data.unit, unitType:data.unit_type, oddLeftover:data.odd_leftover});
     closeModal('modalProduct');
     $('dName').textContent = p.name;
     $('dSku').textContent = p.sku;
