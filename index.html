@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>إدارة المخزون</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#14171a;
+    --surface:#1c2024;
+    --surface-2:#242830;
+    --line:#2e333a;
+    --text:#edeff1;
+    --text-dim:#8b939b;
+    --accent:#f2a93b;
+    --accent-dim:#7a5a24;
+    --good:#3fb950;
+    --good-press:#2f9143;
+    --bad:#e5484d;
+    --bad-press:#c93c40;
+    --radius-s:10px;
+    --radius-m:16px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'IBM Plex Sans Arabic', sans-serif;
+    overflow-x:hidden;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+  input,button{font-family:inherit;}
+
+  /* ---------- App shell / transitions ---------- */
+  .screen{
+    position:fixed;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    transition:transform .28s cubic-bezier(.4,0,.2,1), opacity .28s;
+  }
+  #home{ z-index:1; }
+  #detail{
+    z-index:2;
+    transform:translateX(100%);
+  }
+  body.detail-open #detail{ transform:translateX(0); }
+  body.detail-open #home{ transform:translateX(-6%); filter:brightness(.6); }
+
+  /* ---------- HOME ---------- */
+  .home-top{
+    padding:22px 18px 14px;
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+  }
+  .home-top h1{
+    margin:0 0 14px;
+    font-size:22px;
+    font-weight:700;
+    letter-spacing:.2px;
+  }
+  .home-top .count{
+    color:var(--text-dim);
+    font-weight:500;
+    font-size:15px;
+  }
+  .search-row{
+    display:flex;
+    gap:8px;
+  }
+  .search-wrap{
+    position:relative;
+    flex:1;
+  }
+  .search-wrap svg{
+    position:absolute;
+    right:14px;
+    top:50%;
+    transform:translateY(-50%);
+    opacity:.5;
+  }
+  #search{
+    width:100%;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    border-radius:var(--radius-s);
+    padding:13px 42px 13px 14px;
+    font-size:15px;
+    outline:none;
+  }
+  #search:focus{ border-color:var(--accent-dim); }
+  #search::placeholder{ color:var(--text-dim); }
+  .add-btn{
+    flex-shrink:0;
+    width:48px;
+    background:var(--accent);
+    border:none;
+    border-radius:var(--radius-s);
+    color:#1a1300;
+    font-size:26px;
+    font-weight:600;
+    line-height:1;
+    cursor:pointer;
+  }
+  .filter-row{
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+    overflow-x:auto;
+    padding-bottom:2px;
+  }
+  .filter-chip{
+    flex-shrink:0;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    color:var(--text-dim);
+    padding:7px 14px;
+    border-radius:999px;
+    font-size:13px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .filter-chip.active{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#1a1300;
+    font-weight:600;
+  }
+
+  .list{
+    flex:1;
+    overflow-y:auto;
+    padding:14px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .empty-state{
+    margin-top:60px;
+    text-align:center;
+    color:var(--text-dim);
+  }
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius-m);
+    padding:14px 16px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    cursor:pointer;
+    transition:background .15s;
+  }
+  .card:active{ background:var(--surface-2); }
+  .card-main{ flex:1; min-width:0; }
+  .card-name{
+    font-size:15.5px;
+    font-weight:600;
+    margin:0 0 4px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .card-sku{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--text-dim);
+    letter-spacing:.3px;
+  }
+  .card-qty-wrap{
+    text-align:left;
+    flex-shrink:0;
+  }
+  .card-qty{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:22px;
+    font-weight:600;
+  }
+  .card-unit{
+    font-size:11px;
+    color:var(--text-dim);
+    margin-top:1px;
+  }
+  .low-dot{
+    display:inline-block;
+    width:8px;height:8px;
+    border-radius:50%;
+    background:var(--bad);
+    margin-left:6px;
+    vertical-align:middle;
+  }
+  .card.low .card-qty{ color:var(--bad); }
+
+  /* quick +/- on the card itself, thumb-reachable in a list */
+  .quick-btns{
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    flex-shrink:0;
+  }
+  .quick-btn{
+    width:34px;height:28px;
+    border:none;
+    border-radius:7px;
+    font-size:16px;
+    font-weight:700;
+    line-height:1;
+    cursor:pointer;
+  }
+  .quick-btn.plus{ background:rgba(63,185,80,.18); color:var(--good); }
+  .quick-btn.minus{ background:rgba(229,72,77,.18); color:var(--bad); }
+  .quick-btn:active.plus{ background:var(--good); color:#08210c; }
+  .quick-btn:active.minus{ background:var(--bad); color:#2a0a0a; }
+
+  /* ---------- DETAIL ---------- */
+  #detail{ background:var(--bg); }
+  .detail-header{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:16px 14px;
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+  }
+  .icon-btn{
+    width:38px;height:38px;
+    border-radius:10px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    color:var(--text);
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .detail-header-title{
+    flex:1;
+    min-width:0;
+  }
+  .detail-header-title .n{
+    font-weight:700;
+    font-size:16px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .detail-header-title .s{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--text-dim);
+  }
+
+  .qty-stage{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    padding:10px 20px;
+  }
+  .qty-label{
+    color:var(--text-dim);
+    font-size:14px;
+    font-weight:500;
+  }
+  .qty-number{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:96px;
+    font-weight:700;
+    line-height:1;
+    transition:transform .12s;
+  }
+  .qty-number.bump{ transform:scale(1.08); }
+  .qty-unit{ color:var(--text-dim); font-size:15px; }
+  .qty-lowflag{
+    margin-top:8px;
+    background:rgba(229,72,77,.14);
+    color:var(--bad);
+    border:1px solid rgba(229,72,77,.35);
+    padding:6px 14px;
+    border-radius:999px;
+    font-size:13px;
+    font-weight:600;
+  }
+  .manual-edit-link{
+    margin-top:16px;
+    background:none;
+    border:none;
+    color:var(--accent);
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    padding:8px;
+  }
+
+  .big-buttons{
+    display:flex;
+    flex-shrink:0;
+    height:34vh;
+    min-height:220px;
+  }
+  .big-btn{
+    flex:1;
+    border:none;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;
+    color:#fff;
+    transition:filter .08s;
+  }
+  .big-btn .sym{ font-size:56px; font-weight:700; line-height:1; }
+  .big-btn .lbl{ font-family:'IBM Plex Sans Arabic',sans-serif; font-size:14px; font-weight:600; opacity:.85; }
+  .big-btn.minus{ background:var(--bad); border-radius:0 24px 0 0;}
+  .big-btn.plus{ background:var(--good); border-radius:24px 0 0 0;}
+  .big-btn.minus:active{ background:var(--bad-press); }
+  .big-btn.plus:active{ background:var(--good-press); }
+
+  .detail-footer{
+    display:flex;
+    gap:10px;
+    padding:12px 14px 18px;
+    flex-shrink:0;
+    border-top:1px solid var(--line);
+    background:var(--bg);
+  }
+  .ghost-btn{
+    flex:1;
+    background:var(--surface);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:12px;
+    border-radius:var(--radius-s);
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .ghost-btn.danger{ color:var(--bad); }
+
+  /* ---------- Modal (manual qty / add / edit product) ---------- */
+  .modal-backdrop{
+    position:fixed; inset:0;
+    background:rgba(0,0,0,.55);
+    z-index:10;
+    display:flex;
+    align-items:flex-end;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s;
+  }
+  .modal-backdrop.open{ opacity:1; pointer-events:auto; }
+  .modal-sheet{
+    width:100%;
+    background:var(--surface);
+    border-radius:20px 20px 0 0;
+    padding:20px 18px calc(20px + env(safe-area-inset-bottom));
+    transform:translateY(20px);
+    transition:transform .22s;
+    max-height:85vh;
+    overflow-y:auto;
+  }
+  .modal-backdrop.open .modal-sheet{ transform:translateY(0); }
+  .modal-title{
+    font-size:17px;
+    font-weight:700;
+    margin:0 0 16px;
+  }
+  .field{ margin-bottom:14px; }
+  .field label{
+    display:block;
+    font-size:13px;
+    color:var(--text-dim);
+    margin-bottom:6px;
+    font-weight:500;
+  }
+  .field input{
+    width:100%;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    border-radius:var(--radius-s);
+    padding:12px 14px;
+    font-size:15px;
+    outline:none;
+  }
+  .field input:focus{ border-color:var(--accent-dim); }
+  .field input.big-num{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:22px;
+    font-weight:600;
+    text-align:center;
+  }
+  .modal-actions{
+    display:flex;
+    gap:10px;
+    margin-top:18px;
+  }
+  .btn-solid{
+    flex:1;
+    background:var(--accent);
+    color:#1a1300;
+    border:none;
+    padding:14px;
+    border-radius:var(--radius-s);
+    font-size:15px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  .btn-cancel{
+    flex:1;
+    background:var(--surface-2);
+    color:var(--text);
+    border:1px solid var(--line);
+    padding:14px;
+    border-radius:var(--radius-s);
+    font-size:15px;
+    font-weight:600;
+    cursor:pointer;
+  }
+
+  /* toast */
+  .toast{
+    position:fixed;
+    bottom:18px;
+    left:50%;
+    transform:translate(-50%,20px);
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:11px 20px;
+    border-radius:999px;
+    font-size:13.5px;
+    z-index:20;
+    opacity:0;
+    transition:opacity .2s, transform .2s;
+    pointer-events:none;
+    white-space:nowrap;
+  }
+  .toast.show{ opacity:1; transform:translate(-50%,0); }
+</style>
+</head>
+<body>
+
+<!-- ================= HOME ================= -->
+<div class="screen" id="home">
+  <div class="home-top">
+    <h1>المخزون</h1>
+    <div class="search-row">
+      <div class="search-wrap">
+        <input id="search" placeholder="ابحث بالاسم أو الكود...">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8b939b" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      </div>
+      <button class="add-btn" onclick="openAddModal()">+</button>
+    </div>
+    <div class="filter-row" id="filterRow"></div>
+  </div>
+  <div class="list" id="list">
+    <div class="empty-state" id="loadingState">جارِ التحميل...</div>
+  </div>
+</div>
+
+<!-- ================= DETAIL ================= -->
+<div class="screen" id="detail">
+  <div class="detail-header">
+    <button class="icon-btn" onclick="closeDetail()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+    <div class="detail-header-title">
+      <div class="n" id="dName">—</div>
+      <div class="s" id="dSku">—</div>
+    </div>
+    <button class="icon-btn" onclick="openEditModal()">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+    </button>
+  </div>
+
+  <div class="qty-stage">
+    <div class="qty-label">الكمية الحالية</div>
+    <div class="qty-number" id="dQty">0</div>
+    <div class="qty-unit" id="dUnit">قطعة</div>
+    <div class="qty-lowflag" id="dLowFlag" style="display:none">الكمية أقل من الحد الأدنى</div>
+    <button class="manual-edit-link" onclick="openManualQtyModal()">تعديل الكمية يدوياً (شحنة جديدة)</button>
+  </div>
+
+  <div class="big-buttons">
+    <button class="big-btn plus" onclick="bump(1)">
+      <span class="sym">+1</span>
+      <span class="lbl">إضافة</span>
+    </button>
+    <button class="big-btn minus" onclick="bump(-1)">
+      <span class="sym">−1</span>
+      <span class="lbl">خصم / بيع</span>
+    </button>
+  </div>
+
+  <div class="detail-footer">
+    <button class="ghost-btn" onclick="openEditModal()">تعديل بيانات المنتج</button>
+    <button class="ghost-btn danger" onclick="deleteProduct()">حذف المنتج</button>
+  </div>
+</div>
+
+<!-- ================= MODAL: manual quantity ================= -->
+<div class="modal-backdrop" id="modalManualQty">
+  <div class="modal-sheet">
+    <div class="modal-title">تعديل الكمية يدوياً</div>
+    <div class="field">
+      <label>الكمية الجديدة</label>
+      <input type="number" inputmode="numeric" class="big-num" id="manualQtyInput">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal('modalManualQty')">إلغاء</button>
+      <button class="btn-solid" onclick="saveManualQty()">حفظ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MODAL: add / edit product ================= -->
+<div class="modal-backdrop" id="modalProduct">
+  <div class="modal-sheet">
+    <div class="modal-title" id="productModalTitle">إضافة منتج جديد</div>
+    <div class="field">
+      <label>اسم المنتج</label>
+      <input type="text" id="pfName" placeholder="مثال: تيشيرت رياضي أسود M">
+    </div>
+    <div class="field">
+      <label>الكود / SKU</label>
+      <input type="text" id="pfSku" placeholder="مثال: BLK-TEE-M">
+    </div>
+    <div class="field">
+      <label>التصنيف</label>
+      <input type="text" id="pfCategory" placeholder="مثال: ملابس">
+    </div>
+    <div class="field">
+      <label>الكمية الحالية</label>
+      <input type="number" inputmode="numeric" id="pfQty" placeholder="0">
+    </div>
+    <div class="field">
+      <label>الحد الأدنى للتنبيه</label>
+      <input type="number" inputmode="numeric" id="pfMin" placeholder="5">
+    </div>
+    <div class="field">
+      <label>وحدة القياس</label>
+      <input type="text" id="pfUnit" placeholder="قطعة">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal('modalProduct')">إلغاء</button>
+      <button class="btn-solid" onclick="saveProductForm()">حفظ</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   الاتصال بـ Supabase
+   ============================================================ */
+const SUPABASE_URL = 'https://xxiodivfhkukofsjtrcq.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh4aW9kaXZmaGt1a29mc2p0cmNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDIzODEsImV4cCI6MjEwMzkxODM4MX0.C89zmJRgishZfVo6UAvNzO-uqD2ck8b21WakKpktt2I';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let products = [];
+let currentProductId = null;
+let activeCategory = 'الكل';
+
+const $ = id => document.getElementById(id);
+
+/* تحويل صف قاعدة البيانات لشكل يستخدمه الواجهة */
+function fromRow(r){
+  return { id:r.id, name:r.name, sku:r.sku, category:r.category, qty:r.qty, min:r.min_qty, unit:r.unit };
+}
+
+async function loadProducts(){
+  const { data, error } = await sb.from('products').select('*').order('created_at', {ascending:true});
+  if(error){ showToast('تعذر تحميل البيانات'); console.error(error); return; }
+  products = data.map(fromRow);
+  $('loadingState') && $('loadingState').remove();
+  renderFilters();
+  renderList();
+}
+
+/* مزامنة فورية: أي تعديل من جهاز آخر ينعكس هنا تلقائياً */
+sb.channel('products-changes')
+  .on('postgres_changes', { event:'*', schema:'public', table:'products' }, payload=>{
+    loadProducts().then(()=>{
+      if(document.body.classList.contains('detail-open') && currentProductId){
+        const p = products.find(x=>x.id===currentProductId);
+        if(p) updateQtyDisplay(p, false);
+      }
+    });
+  })
+  .subscribe();
+
+/* ---------------- render home ---------------- */
+function categories(){
+  const set = new Set(products.map(p=>p.category));
+  return ['الكل', ...set];
+}
+
+function renderFilters(){
+  const row = $('filterRow');
+  row.innerHTML = '';
+  categories().forEach(c=>{
+    const chip = document.createElement('button');
+    chip.className = 'filter-chip' + (c===activeCategory?' active':'');
+    chip.textContent = c;
+    chip.onclick = ()=>{ activeCategory = c; renderFilters(); renderList(); };
+    row.appendChild(chip);
+  });
+}
+
+function renderList(){
+  const q = $('search').value.trim().toLowerCase();
+  const list = $('list');
+  let items = products.filter(p=>{
+    const matchQ = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
+    const matchC = activeCategory==='الكل' || p.category===activeCategory;
+    return matchQ && matchC;
+  });
+
+  list.innerHTML = '';
+  $('home').querySelector('.count') && $('home').querySelector('.count').remove();
+
+  if(items.length===0){
+    list.innerHTML = '<div class="empty-state">لا توجد منتجات مطابقة</div>';
+    return;
+  }
+
+  items.forEach(p=>{
+    const low = p.qty <= p.min;
+    const card = document.createElement('div');
+    card.className = 'card' + (low?' low':'');
+    card.innerHTML = `
+      <div class="card-main">
+        <p class="card-name">${escapeHtml(p.name)}${low?'<span class="low-dot"></span>':''}</p>
+        <div class="card-sku">${escapeHtml(p.sku)}</div>
+      </div>
+      <div class="quick-btns">
+        <button class="quick-btn plus">+</button>
+        <button class="quick-btn minus">−</button>
+      </div>
+      <div class="card-qty-wrap">
+        <div class="card-qty">${p.qty}</div>
+        <div class="card-unit">${escapeHtml(p.unit)}</div>
+      </div>
+    `;
+    card.querySelector('.card-main').onclick = ()=>openDetail(p.id);
+    card.querySelector('.card-qty-wrap').onclick = ()=>openDetail(p.id);
+    card.querySelector('.quick-btn.plus').onclick = (e)=>{ e.stopPropagation(); quickBump(p.id,1); };
+    card.querySelector('.quick-btn.minus').onclick = (e)=>{ e.stopPropagation(); quickBump(p.id,-1); };
+    list.appendChild(card);
+  });
+}
+
+async function quickBump(id, delta){
+  const p = products.find(x=>x.id===id);
+  if(!p) return;
+  const prevQty = p.qty;
+  const newQty = Math.max(0, p.qty + delta);
+  p.qty = newQty; // تحديث فوري في الواجهة
+  renderList();
+  showToast((delta>0?'+1 — ':'−1 — ') + p.name);
+  if(navigator.vibrate) navigator.vibrate(15);
+
+  const { error } = await sb.from('products').update({ qty:newQty }).eq('id', id);
+  if(error){ p.qty = prevQty; renderList(); showToast('فشل الحفظ، حاول مجدداً'); return; }
+  sb.from('stock_movements').insert({
+    product_id:id, change_amount:delta, previous_qty:prevQty, new_qty:newQty,
+    movement_type: delta>0 ? 'sale_or_use_increment' : 'sale_or_use_decrement'
+  }).then(()=>{});
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+$('search').addEventListener('input', renderList);
+
+/* ---------------- detail screen ---------------- */
+function openDetail(id){
+  currentProductId = id;
+  const p = products.find(x=>x.id===id);
+  if(!p) return;
+  $('dName').textContent = p.name;
+  $('dSku').textContent = p.sku;
+  $('dUnit').textContent = p.unit;
+  updateQtyDisplay(p, false);
+  document.body.classList.add('detail-open');
+}
+
+function closeDetail(){
+  document.body.classList.remove('detail-open');
+  renderFilters();
+  renderList();
+}
+
+function updateQtyDisplay(p, animate){
+  const el = $('dQty');
+  el.textContent = p.qty;
+  $('dLowFlag').style.display = (p.qty <= p.min) ? 'block' : 'none';
+  if(animate){
+    el.classList.remove('bump');
+    void el.offsetWidth;
+    el.classList.add('bump');
+  }
+}
+
+async function bump(delta){
+  const p = products.find(x=>x.id===currentProductId);
+  if(!p) return;
+  const prevQty = p.qty;
+  const newQty = Math.max(0, p.qty + delta);
+  p.qty = newQty; // تحديث فوري في الواجهة
+  updateQtyDisplay(p, true);
+  if(navigator.vibrate) navigator.vibrate(delta>0?15:[10,30,10]);
+
+  const { error } = await sb.from('products').update({ qty:newQty }).eq('id', currentProductId);
+  if(error){ p.qty = prevQty; updateQtyDisplay(p, false); showToast('فشل الحفظ، حاول مجدداً'); return; }
+  sb.from('stock_movements').insert({
+    product_id:currentProductId, change_amount:delta, previous_qty:prevQty, new_qty:newQty,
+    movement_type: delta>0 ? 'increment' : 'decrement'
+  }).then(()=>{});
+}
+
+async function deleteProduct(){
+  const p = products.find(x=>x.id===currentProductId);
+  if(!p) return;
+  if(!confirm(`حذف "${p.name}"؟ لا يمكن التراجع عن هذا.`)) return;
+  const { error } = await sb.from('products').delete().eq('id', currentProductId);
+  if(error){ showToast('تعذر حذف المنتج'); return; }
+  products = products.filter(x=>x.id!==currentProductId);
+  closeDetail();
+  showToast('تم حذف المنتج');
+}
+
+/* ---------------- manual qty modal ---------------- */
+function openManualQtyModal(){
+  const p = products.find(x=>x.id===currentProductId);
+  $('manualQtyInput').value = p.qty;
+  openModal('modalManualQty');
+  setTimeout(()=>$('manualQtyInput').focus(), 250);
+}
+async function saveManualQty(){
+  const p = products.find(x=>x.id===currentProductId);
+  const v = parseInt($('manualQtyInput').value, 10);
+  if(isNaN(v) || v < 0){ showToast('أدخل رقماً صحيحاً'); return; }
+  const prevQty = p.qty;
+  const { error } = await sb.from('products').update({ qty:v }).eq('id', currentProductId);
+  if(error){ showToast('تعذر الحفظ'); return; }
+  sb.from('stock_movements').insert({
+    product_id:currentProductId, change_amount:v-prevQty, previous_qty:prevQty, new_qty:v,
+    movement_type:'manual_correction'
+  }).then(()=>{});
+  p.qty = v;
+  updateQtyDisplay(p, true);
+  closeModal('modalManualQty');
+  showToast('تم تحديث الكمية');
+}
+
+/* ---------------- add / edit product modal ---------------- */
+function openAddModal(){
+  currentProductId = null;
+  $('productModalTitle').textContent = 'إضافة منتج جديد';
+  ['pfName','pfSku','pfCategory','pfQty','pfMin','pfUnit'].forEach(id=>$(id).value='');
+  $('pfUnit').value = 'قطعة';
+  $('pfMin').value = '5';
+  openModal('modalProduct');
+}
+
+function openEditModal(){
+  const p = products.find(x=>x.id===currentProductId);
+  if(!p) return;
+  $('productModalTitle').textContent = 'تعديل بيانات المنتج';
+  $('pfName').value = p.name;
+  $('pfSku').value = p.sku;
+  $('pfCategory').value = p.category;
+  $('pfQty').value = p.qty;
+  $('pfMin').value = p.min;
+  $('pfUnit').value = p.unit;
+  openModal('modalProduct');
+}
+
+async function saveProductForm(){
+  const name = $('pfName').value.trim();
+  const sku = $('pfSku').value.trim();
+  if(!name || !sku){ showToast('الاسم والكود مطلوبان'); return; }
+
+  const dupe = products.find(p=>p.sku===sku && p.id!==currentProductId);
+  if(dupe){ showToast('هذا الكود مستخدم بالفعل'); return; }
+
+  const data = {
+    name,
+    sku,
+    category: $('pfCategory').value.trim() || 'عام',
+    qty: Math.max(0, parseInt($('pfQty').value,10) || 0),
+    min_qty: Math.max(0, parseInt($('pfMin').value,10) || 0),
+    unit: $('pfUnit').value.trim() || 'قطعة',
+  };
+
+  if(currentProductId===null){
+    const { data:inserted, error } = await sb.from('products').insert(data).select().single();
+    if(error){ showToast('تعذر إضافة المنتج'); console.error(error); return; }
+    products.push(fromRow(inserted));
+    closeModal('modalProduct');
+    renderFilters(); renderList();
+    showToast('تمت إضافة المنتج');
+  } else {
+    const { error } = await sb.from('products').update(data).eq('id', currentProductId);
+    if(error){ showToast('تعذر حفظ التعديلات'); console.error(error); return; }
+    const p = products.find(x=>x.id===currentProductId);
+    Object.assign(p, {name:data.name, sku:data.sku, category:data.category, qty:data.qty, min:data.min_qty, unit:data.unit});
+    closeModal('modalProduct');
+    $('dName').textContent = p.name;
+    $('dSku').textContent = p.sku;
+    $('dUnit').textContent = p.unit;
+    updateQtyDisplay(p, false);
+    showToast('تم حفظ التعديلات');
+  }
+}
+
+/* ---------------- modal helpers ---------------- */
+function openModal(id){ $(id).classList.add('open'); }
+function closeModal(id){ $(id).classList.remove('open'); }
+document.querySelectorAll('.modal-backdrop').forEach(m=>{
+  m.addEventListener('click', e=>{ if(e.target===m) closeModal(m.id); });
+});
+
+/* ---------------- toast ---------------- */
+let toastTimer;
+function showToast(msg){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 1600);
+}
+
+/* ---------------- init ---------------- */
+loadProducts();
+</script>
+</body>
+</html>
