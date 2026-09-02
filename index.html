@@ -471,6 +471,32 @@
     font-weight:600;
     text-align:center;
   }
+  .toggle-group{
+    display:flex;
+    gap:var(--space-2);
+  }
+  .toggle-btn{
+    flex:1;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    color:var(--text-dim);
+    padding:11px 8px;
+    min-height:48px;
+    border-radius:var(--radius-s);
+    font-size:13px;
+    font-weight:600;
+    line-height:1.3;
+  }
+  .toggle-btn.active{
+    background:var(--brand);
+    border-color:var(--brand);
+    color:#fff;
+  }
+  .unit-conversion{
+    color:var(--text-dim);
+    font-size:13px;
+    margin-top:2px;
+  }
   .modal-actions{
     display:flex;
     gap:var(--space-2);
@@ -563,6 +589,7 @@
     <div class="qty-label">الكمية الحالية</div>
     <div class="qty-number num" id="dQty" aria-live="polite">0</div>
     <div class="qty-unit" id="dUnit">قطعة</div>
+    <div class="unit-conversion" id="dUnitConversion" style="display:none"></div>
     <div class="qty-lowflag" id="dLowFlag" style="display:none" role="status">الكمية أقل من الحد الأدنى</div>
     <button class="manual-edit-link" onclick="openManualQtyModal()">تعديل الكمية يدوياً (شحنة جديدة)</button>
   </div>
@@ -625,6 +652,13 @@
       <label for="pfUnit">وحدة القياس</label>
       <input type="text" id="pfUnit" placeholder="قطعة">
     </div>
+    <div class="field">
+      <label id="pfUnitTypeLabel">نوع العد</label>
+      <div class="toggle-group" id="pfUnitTypeGroup" role="radiogroup" aria-labelledby="pfUnitTypeLabel">
+        <button type="button" class="toggle-btn active" data-value="single" role="radio" aria-checked="true" onclick="setUnitType('single')">فردي<br>كل قطعة = حبة</button>
+        <button type="button" class="toggle-btn" data-value="pair" role="radio" aria-checked="false" onclick="setUnitType('pair')">زوج<br>كل قطعتين = حبة</button>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal('modalProduct')">إلغاء</button>
       <button class="btn-solid" onclick="saveProductForm()">حفظ</button>
@@ -646,7 +680,7 @@ let activeCategory = 'الكل';
 const $ = id => document.getElementById(id);
 
 function fromRow(r){
-  return { id:r.id, name:r.name, sku:r.sku, category:r.category, qty:r.qty, min:r.min_qty, unit:r.unit };
+  return { id:r.id, name:r.name, sku:r.sku, category:r.category, qty:r.qty, min:r.min_qty, unit:r.unit, unitType:r.unit_type || 'single' };
 }
 
 async function loadProducts(){
@@ -816,6 +850,13 @@ function updateQtyDisplay(p, animate){
   const el = $('dQty');
   el.textContent = p.qty;
   $('dLowFlag').style.display = (p.qty <= p.min) ? 'block' : 'none';
+  const conv = $('dUnitConversion');
+  if(p.unitType === 'pair'){
+    conv.textContent = `= ${p.qty * 2} قطعة فردية (زوج، كل قطعتين = حبة)`;
+    conv.style.display = 'block';
+  } else {
+    conv.style.display = 'none';
+  }
   if(animate){
     el.classList.remove('bump');
     void el.offsetWidth;
@@ -874,12 +915,23 @@ async function saveManualQty(){
   showToast('تم تحديث الكمية');
 }
 
+let selectedUnitType = 'single';
+function setUnitType(v){
+  selectedUnitType = v;
+  document.querySelectorAll('#pfUnitTypeGroup .toggle-btn').forEach(btn=>{
+    const on = btn.dataset.value === v;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-checked', on ? 'true':'false');
+  });
+}
+
 function openAddModal(){
   currentProductId = null;
   $('productModalTitle').textContent = 'إضافة منتج جديد';
   ['pfName','pfSku','pfCategory','pfQty','pfMin','pfUnit'].forEach(id=>$(id).value='');
   $('pfUnit').value = 'قطعة';
   $('pfMin').value = '5';
+  setUnitType('single');
   openModal('modalProduct');
 }
 
@@ -893,6 +945,7 @@ function openEditModal(){
   $('pfQty').value = p.qty;
   $('pfMin').value = p.min;
   $('pfUnit').value = p.unit;
+  setUnitType(p.unitType || 'single');
   openModal('modalProduct');
 }
 
@@ -911,6 +964,7 @@ async function saveProductForm(){
     qty: Math.max(0, parseInt($('pfQty').value,10) || 0),
     min_qty: Math.max(0, parseInt($('pfMin').value,10) || 0),
     unit: $('pfUnit').value.trim() || 'قطعة',
+    unit_type: selectedUnitType,
   };
 
   if(currentProductId===null){
@@ -924,7 +978,7 @@ async function saveProductForm(){
     const { error } = await sb.from('products').update(data).eq('id', currentProductId);
     if(error){ showToast('تعذر حفظ التعديلات'); console.error(error); return; }
     const p = products.find(x=>x.id===currentProductId);
-    Object.assign(p, {name:data.name, sku:data.sku, category:data.category, qty:data.qty, min:data.min_qty, unit:data.unit});
+    Object.assign(p, {name:data.name, sku:data.sku, category:data.category, qty:data.qty, min:data.min_qty, unit:data.unit, unitType:data.unit_type});
     closeModal('modalProduct');
     $('dName').textContent = p.name;
     $('dSku').textContent = p.sku;
