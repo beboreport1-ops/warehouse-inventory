@@ -170,7 +170,7 @@
     color:var(--text-faint);
     pointer-events:none;
   }
-  #search{
+  .search-input{
     width:100%;
     background:var(--surface-2);
     border:1px solid var(--line);
@@ -181,7 +181,7 @@
     outline:none;
     min-height:44px;
   }
-  #search::placeholder{ color:var(--text-faint); }
+  .search-input::placeholder{ color:var(--text-faint); }
   .add-btn{
     flex-shrink:0;
     width:46px;
@@ -817,7 +817,7 @@
     </div>
     <div class="search-row">
       <div class="search-wrap">
-        <input id="search" placeholder="ابحث بالاسم أو الكود..." aria-label="بحث في المنتجات">
+        <input id="search" class="search-input" placeholder="ابحث بالاسم أو الكود..." aria-label="بحث في المنتجات">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       </div>
       <button class="select-toggle-btn" onclick="toggleSelectMode()" aria-label="تحديد منتجات للتصدير">
@@ -855,9 +855,10 @@
   </div>
   <div class="home-top" style="border-bottom:1px solid var(--line); padding:12px 16px;">
     <div class="search-wrap">
-      <input id="orderSearch" placeholder="ابحث بالاسم أو الكود..." aria-label="بحث في المنتجات">
+      <input id="orderSearch" class="search-input" placeholder="ابحث بالاسم أو الكود..." aria-label="بحث في المنتجات">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
     </div>
+    <div class="filter-row" id="orderFilterRow" role="tablist" aria-label="تصفية حسب التصنيف" style="margin-top:var(--space-3)"></div>
   </div>
   <div class="list" id="orderList" role="list" style="display:block"></div>
   <div class="order-footer">
@@ -1535,11 +1536,14 @@ function showToast(msg){
 /* ---------------- order builder (basket) ---------------- */
 let orderCart = new Map(); // product id -> qty
 let expandedOrderGroups = new Set();
+let orderActiveCategory = 'الكل';
 
 function openOrderScreen(){
   orderCart.clear();
   expandedOrderGroups.clear();
+  orderActiveCategory = 'الكل';
   $('orderSearch').value = '';
+  renderOrderFilters();
   renderOrderList();
   updateOrderFooter();
   document.body.classList.add('order-open');
@@ -1555,11 +1559,28 @@ function setOrderQty(id, qty){
   updateOrderFooter();
 }
 
+function renderOrderFilters(){
+  const row = $('orderFilterRow');
+  row.innerHTML = '';
+  const cats = ['الكل', ...new Set(products.map(p=>p.category))];
+  cats.forEach(c=>{
+    const chip = document.createElement('button');
+    chip.className = 'filter-chip' + (c===orderActiveCategory?' active':'');
+    chip.textContent = c;
+    chip.setAttribute('role','tab');
+    chip.setAttribute('aria-selected', c===orderActiveCategory ? 'true':'false');
+    chip.onclick = ()=>{ orderActiveCategory = c; renderOrderFilters(); renderOrderList(); };
+    row.appendChild(chip);
+  });
+}
+
 function renderOrderList(){
   const q = $('orderSearch').value.trim().toLowerCase();
   const list = $('orderList');
   const items = products.filter(p=>{
-    return !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
+    const matchQ = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
+    const matchC = orderActiveCategory==='الكل' || p.category===orderActiveCategory;
+    return matchQ && matchC;
   });
 
   const groups = new Map();
