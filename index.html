@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>إدارة المخزون</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0e1013">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="المخزون">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
@@ -622,6 +630,16 @@
     font-size:15px;
     font-weight:600;
   }
+
+  .category-label{
+    font-size:12.5px;
+    font-weight:700;
+    color:var(--text-dim);
+    text-transform:uppercase;
+    letter-spacing:.3px;
+    margin:14px 2px 8px;
+  }
+  .category-label:first-child{ margin-top:2px; }
 
   .confirm-message{
     color:var(--text-dim);
@@ -1555,7 +1573,7 @@ function renderOrderList(){
   const sizeOrder = s => { const i = SIZE_TOKENS.indexOf((s||'').toUpperCase()); return i===-1?99:(SIZE_TOKENS.length-i); };
   const groupList = Array.from(groups.values());
   groupList.forEach(g=> g.variants.sort((a,b)=> sizeOrder(b.size) - sizeOrder(a.size)));
-  groupList.sort((a,b)=> a.base.localeCompare(b.base, 'ar'));
+  groupList.sort((a,b)=> a.category.localeCompare(b.category,'ar') || a.base.localeCompare(b.base, 'ar'));
 
   list.innerHTML = '';
   if(groupList.length===0){
@@ -1577,7 +1595,16 @@ function renderOrderList(){
     return stepper;
   }
 
+  let lastCategory = null;
   groupList.forEach(g=>{
+    if(g.category !== lastCategory){
+      lastCategory = g.category;
+      const label = document.createElement('div');
+      label.className = 'category-label';
+      label.textContent = g.category;
+      list.appendChild(label);
+    }
+
     if(g.variants.length === 1){
       const v = g.variants[0];
       const row = document.createElement('div');
@@ -1729,6 +1756,12 @@ document.addEventListener('keydown', e=>{
 });
 
 loadProducts();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  });
+}
 </script>
 </body>
 </html>
