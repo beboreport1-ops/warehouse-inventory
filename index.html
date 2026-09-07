@@ -123,6 +123,49 @@
   body.history-open #historyScreen{ transform:translateX(0); }
   body.history-open #orderScreen{ transform:translateX(-6%); filter:brightness(.55); }
 
+  #reportsScreen{
+    z-index:2;
+    transform:translateX(100%);
+    background:var(--bg);
+  }
+  body.reports-open #reportsScreen{ transform:translateX(0); }
+  body.reports-open #home{ transform:translateX(-6%); filter:brightness(.55); }
+
+  #lockScreen{
+    z-index:999;
+    background:var(--bg);
+    align-items:center;
+    justify-content:center;
+  }
+  .lock-box{ width:100%; max-width:320px; padding:24px; text-align:center; }
+  .lock-icon{
+    width:56px;height:56px;
+    border-radius:16px;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    margin:0 auto 18px;
+    color:var(--brand);
+  }
+  .lock-subtitle{
+    color:var(--text-dim);
+    font-size:13.5px;
+    line-height:1.6;
+    margin-bottom:20px;
+  }
+  #lockPinInput{
+    text-align:center;
+    font-size:24px;
+    letter-spacing:10px;
+    font-family:'IBM Plex Mono',monospace;
+  }
+  .lock-error{
+    color:var(--bad);
+    font-size:13px;
+    margin-top:8px;
+    min-height:18px;
+  }
+
   .group-detail-list{
     flex:1;
     overflow-y:auto;
@@ -809,6 +852,19 @@
 </head>
 <body>
 
+<div class="screen" id="lockScreen" style="display:flex">
+  <div class="lock-box">
+    <div class="lock-icon">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    </div>
+    <div class="modal-title" id="lockTitle">أدخل الرمز</div>
+    <div class="lock-subtitle" id="lockSubtitle">لحماية بيانات المخزون</div>
+    <input type="password" inputmode="numeric" id="lockPinInput" class="search-input" maxlength="8" autocomplete="off" aria-label="رمز الدخول">
+    <div class="lock-error" id="lockError"></div>
+    <button class="btn-solid" id="lockSubmitBtn" style="width:100%; margin-top:16px;" onclick="submitLockPin()">دخول</button>
+  </div>
+</div>
+
 <div class="screen" id="home">
   <div class="home-top">
     <div class="home-top-row">
@@ -820,8 +876,14 @@
         <input id="search" class="search-input" placeholder="ابحث بالاسم أو الكود..." aria-label="بحث في المنتجات">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       </div>
+      <button class="select-toggle-btn" onclick="openReportsScreen()" aria-label="الأكثر مبيعاً">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+      </button>
       <button class="select-toggle-btn" onclick="toggleSelectMode()" aria-label="تحديد منتجات للتصدير">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      </button>
+      <button class="select-toggle-btn" onclick="relockApp()" aria-label="قفل التطبيق">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       </button>
       <button class="add-btn" onclick="openAddModal()" aria-label="إضافة منتج جديد">+</button>
     </div>
@@ -876,6 +938,21 @@
     </div>
   </div>
   <div class="list" id="historyList" role="list" style="display:block">
+    <div class="empty-state">جارِ التحميل...</div>
+  </div>
+</div>
+
+<div class="screen" id="reportsScreen" role="dialog" aria-modal="true" aria-labelledby="reportsTitle">
+  <div class="detail-header">
+    <button class="icon-btn" onclick="closeReportsScreen()" aria-label="رجوع">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+    <div class="detail-header-title">
+      <div class="n" id="reportsTitle">الأكثر مبيعاً</div>
+      <div class="s">آخر 30 يوم — حسب البيع والطلبات المرسلة</div>
+    </div>
+  </div>
+  <div class="list" id="reportsList" role="list" style="display:block">
     <div class="empty-state">جارِ التحميل...</div>
   </div>
 </div>
@@ -1771,12 +1848,125 @@ function closeHistoryScreen(){
 
 document.addEventListener('keydown', e=>{
   if(e.key==='Escape'){
-    if(document.body.classList.contains('history-open')) closeHistoryScreen();
+    if(document.body.classList.contains('reports-open')) closeReportsScreen();
+    else if(document.body.classList.contains('history-open')) closeHistoryScreen();
     else if(document.body.classList.contains('order-open')) closeOrderScreen();
   }
 });
 
-loadProducts();
+/* ---------------- reports: top sellers ---------------- */
+async function openReportsScreen(){
+  document.body.classList.add('reports-open');
+  const list = $('reportsList');
+  list.innerHTML = '<div class="empty-state">جارِ التحميل...</div>';
+
+  const since = new Date(Date.now() - 30*24*3600*1000).toISOString();
+  const { data, error } = await sb.from('stock_movements')
+    .select('product_id, change_amount, movement_type, created_at')
+    .lt('change_amount', 0)
+    .gte('created_at', since);
+
+  if(error){ list.innerHTML = '<div class="empty-state">تعذر تحميل التقرير</div>'; return; }
+  if(!data || data.length===0){ list.innerHTML = '<div class="empty-state">لا توجد بيانات مبيعات خلال آخر 30 يوم</div>'; return; }
+
+  const totals = new Map();
+  data.forEach(m=>{
+    const cur = totals.get(m.product_id) || 0;
+    totals.set(m.product_id, cur + Math.abs(m.change_amount));
+  });
+
+  const rows = Array.from(totals.entries()).map(([id, total])=>{
+    const p = products.find(x=>x.id===id);
+    return { name: p ? p.name : 'منتج محذوف', sku: p ? p.sku : '—', total };
+  }).sort((a,b)=> b.total - a.total).slice(0, 20);
+
+  list.innerHTML = '';
+  rows.forEach((r, i)=>{
+    const row = document.createElement('div');
+    row.className = 'order-row';
+    row.innerHTML = `
+      <div class="info">
+        <div class="n">${i+1}. ${escapeHtml(r.name)}</div>
+        <div class="s num">${escapeHtml(r.sku)}</div>
+      </div>
+      <div class="qty num" style="width:auto; font-size:18px; color:var(--brand); font-weight:700;">${r.total}</div>
+    `;
+    list.appendChild(row);
+  });
+}
+function closeReportsScreen(){
+  document.body.classList.remove('reports-open');
+}
+
+/* ---------------- PIN lock (soft UI lock, not real API security) ---------------- */
+const PIN_STORAGE_KEY = 'mkhzon_unlocked_at';
+const PIN_SESSION_HOURS = 8;
+let lockMode = 'enter';
+
+async function initApp(){
+  const { data } = await sb.from('app_settings').select('value').eq('key','pin').maybeSingle();
+  const pinSet = data && data.value;
+
+  if(!pinSet){
+    showLockScreen('setup');
+    return;
+  }
+  const lastUnlock = localStorage.getItem(PIN_STORAGE_KEY);
+  const withinSession = lastUnlock && (Date.now() - parseInt(lastUnlock,10)) < PIN_SESSION_HOURS*3600*1000;
+  if(withinSession){
+    hideLockScreen();
+    loadProducts();
+    return;
+  }
+  showLockScreen('enter');
+}
+
+function showLockScreen(mode){
+  lockMode = mode;
+  $('lockTitle').textContent = mode==='setup' ? 'إنشاء رمز دخول' : 'أدخل الرمز';
+  $('lockSubtitle').textContent = mode==='setup'
+    ? 'اختر رمز من 4 أرقام على الأقل لحماية الوصول للمخزون'
+    : 'لحماية بيانات المخزون';
+  $('lockSubmitBtn').textContent = mode==='setup' ? 'حفظ وإنشاء' : 'دخول';
+  $('lockPinInput').value = '';
+  $('lockError').textContent = '';
+  $('lockScreen').style.display = 'flex';
+  setTimeout(()=>$('lockPinInput').focus(), 200);
+}
+function hideLockScreen(){
+  $('lockScreen').style.display = 'none';
+}
+function relockApp(){
+  localStorage.removeItem(PIN_STORAGE_KEY);
+  showLockScreen('enter');
+}
+
+async function submitLockPin(){
+  const val = $('lockPinInput').value.trim();
+  if(lockMode==='setup'){
+    if(val.length<4){ $('lockError').textContent = 'الرمز لازم يكون 4 أرقام على الأقل'; return; }
+    const { error } = await sb.from('app_settings').upsert({ key:'pin', value:val });
+    if(error){ $('lockError').textContent = 'تعذر الحفظ، حاول مجدداً'; return; }
+    localStorage.setItem(PIN_STORAGE_KEY, Date.now().toString());
+    hideLockScreen();
+    loadProducts();
+    return;
+  }
+  const { data, error } = await sb.from('app_settings').select('value').eq('key','pin').maybeSingle();
+  if(error || !data){ $('lockError').textContent = 'خطأ بالتحقق، حاول مجدداً'; return; }
+  if(val === data.value){
+    localStorage.setItem(PIN_STORAGE_KEY, Date.now().toString());
+    hideLockScreen();
+    loadProducts();
+  } else {
+    $('lockError').textContent = 'رمز غير صحيح';
+    $('lockPinInput').value = '';
+    $('lockPinInput').focus();
+  }
+}
+$('lockPinInput').addEventListener('keydown', e=>{ if(e.key==='Enter') submitLockPin(); });
+
+initApp();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
