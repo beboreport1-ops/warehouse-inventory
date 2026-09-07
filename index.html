@@ -153,18 +153,57 @@
     line-height:1.6;
     margin-bottom:20px;
   }
-  #lockPinInput{
-    text-align:center;
-    font-size:24px;
-    letter-spacing:10px;
-    font-family:'IBM Plex Mono',monospace;
+  .pin-dots{
+    display:flex;
+    justify-content:center;
+    gap:16px;
+    margin:8px 0 4px;
+  }
+  .pin-dot{
+    width:16px;height:16px;
+    border-radius:50%;
+    border:2px solid var(--line);
+    background:transparent;
+    transition:background .15s, border-color .15s, transform .15s;
+  }
+  .pin-dot.filled{
+    background:var(--brand);
+    border-color:var(--brand);
+    transform:scale(1.1);
+  }
+  .pin-dots.shake{ animation:pinShake .4s; }
+  @keyframes pinShake{
+    10%,90%{ transform:translateX(-2px); }
+    20%,80%{ transform:translateX(4px); }
+    30%,50%,70%{ transform:translateX(-8px); }
+    40%,60%{ transform:translateX(8px); }
   }
   .lock-error{
     color:var(--bad);
     font-size:13px;
-    margin-top:8px;
+    margin-top:10px;
     min-height:18px;
   }
+  .pin-keypad{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:14px;
+    margin-top:20px;
+  }
+  .pin-key{
+    aspect-ratio:1;
+    border-radius:50%;
+    border:1px solid var(--line);
+    background:var(--surface-2);
+    color:var(--text);
+    font-family:'IBM Plex Mono',monospace;
+    font-size:22px;
+    font-weight:600;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .pin-key:active{ background:var(--surface-3); }
+  .pin-key-back{ background:transparent; border:none; color:var(--text-dim); }
+  .pin-key-back:active{ background:var(--surface-2); }
 
   .group-detail-list{
     flex:1;
@@ -859,9 +898,29 @@
     </div>
     <div class="modal-title" id="lockTitle">أدخل الرمز</div>
     <div class="lock-subtitle" id="lockSubtitle">لحماية بيانات المخزون</div>
-    <input type="password" inputmode="numeric" id="lockPinInput" class="search-input" maxlength="8" autocomplete="off" aria-label="رمز الدخول">
+    <div class="pin-dots" id="pinDots">
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+    </div>
     <div class="lock-error" id="lockError"></div>
-    <button class="btn-solid" id="lockSubmitBtn" style="width:100%; margin-top:16px;" onclick="submitLockPin()">دخول</button>
+    <div class="pin-keypad" id="pinKeypad">
+      <button type="button" class="pin-key" data-digit="1">1</button>
+      <button type="button" class="pin-key" data-digit="2">2</button>
+      <button type="button" class="pin-key" data-digit="3">3</button>
+      <button type="button" class="pin-key" data-digit="4">4</button>
+      <button type="button" class="pin-key" data-digit="5">5</button>
+      <button type="button" class="pin-key" data-digit="6">6</button>
+      <button type="button" class="pin-key" data-digit="7">7</button>
+      <button type="button" class="pin-key" data-digit="8">8</button>
+      <button type="button" class="pin-key" data-digit="9">9</button>
+      <span></span>
+      <button type="button" class="pin-key" data-digit="0">0</button>
+      <button type="button" class="pin-key pin-key-back" id="pinBackspace" aria-label="حذف">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Z"/><path d="m14 9-4 6"/><path d="m10 9 4 6"/></svg>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -1901,7 +1960,9 @@ function closeReportsScreen(){
 /* ---------------- PIN lock (soft UI lock, not real API security) ---------------- */
 const PIN_STORAGE_KEY = 'mkhzon_unlocked_at';
 const PIN_SESSION_HOURS = 8;
+const PIN_LENGTH = 4;
 let lockMode = 'enter';
+let pinBuffer = '';
 
 async function initApp(){
   const { data } = await sb.from('app_settings').select('value').eq('key','pin').maybeSingle();
@@ -1923,15 +1984,14 @@ async function initApp(){
 
 function showLockScreen(mode){
   lockMode = mode;
+  pinBuffer = '';
   $('lockTitle').textContent = mode==='setup' ? 'إنشاء رمز دخول' : 'أدخل الرمز';
   $('lockSubtitle').textContent = mode==='setup'
-    ? 'اختر رمز من 4 أرقام على الأقل لحماية الوصول للمخزون'
+    ? 'اختر رمز من 4 أرقام لحماية الوصول للمخزون'
     : 'لحماية بيانات المخزون';
-  $('lockSubmitBtn').textContent = mode==='setup' ? 'حفظ وإنشاء' : 'دخول';
-  $('lockPinInput').value = '';
   $('lockError').textContent = '';
+  renderPinDots();
   $('lockScreen').style.display = 'flex';
-  setTimeout(()=>$('lockPinInput').focus(), 200);
 }
 function hideLockScreen(){
   $('lockScreen').style.display = 'none';
@@ -1941,30 +2001,68 @@ function relockApp(){
   showLockScreen('enter');
 }
 
+function renderPinDots(){
+  const dots = $('pinDots').querySelectorAll('.pin-dot');
+  dots.forEach((d,i)=> d.classList.toggle('filled', i < pinBuffer.length));
+}
+
+function pinShakeError(msg){
+  $('lockError').textContent = msg;
+  const dotsEl = $('pinDots');
+  dotsEl.classList.remove('shake');
+  void dotsEl.offsetWidth;
+  dotsEl.classList.add('shake');
+  pinBuffer = '';
+  renderPinDots();
+}
+
+async function pressPinDigit(d){
+  if(pinBuffer.length >= PIN_LENGTH) return;
+  pinBuffer += d;
+  renderPinDots();
+  $('lockError').textContent = '';
+  if(pinBuffer.length === PIN_LENGTH){
+    await submitLockPin();
+  }
+}
+function pressPinBackspace(){
+  pinBuffer = pinBuffer.slice(0, -1);
+  renderPinDots();
+}
+
+$('pinKeypad').addEventListener('click', e=>{
+  const key = e.target.closest('.pin-key');
+  if(!key) return;
+  if(key.id === 'pinBackspace') pressPinBackspace();
+  else pressPinDigit(key.dataset.digit);
+});
+document.addEventListener('keydown', e=>{
+  if($('lockScreen').style.display !== 'flex') return;
+  if(e.key >= '0' && e.key <= '9') pressPinDigit(e.key);
+  else if(e.key === 'Backspace') pressPinBackspace();
+});
+
 async function submitLockPin(){
-  const val = $('lockPinInput').value.trim();
+  const val = pinBuffer;
   if(lockMode==='setup'){
-    if(val.length<4){ $('lockError').textContent = 'الرمز لازم يكون 4 أرقام على الأقل'; return; }
     const { error } = await sb.from('app_settings').upsert({ key:'pin', value:val });
-    if(error){ $('lockError').textContent = 'تعذر الحفظ، حاول مجدداً'; return; }
+    if(error){ pinShakeError('تعذر الحفظ، حاول مجدداً'); return; }
     localStorage.setItem(PIN_STORAGE_KEY, Date.now().toString());
     hideLockScreen();
     loadProducts();
     return;
   }
   const { data, error } = await sb.from('app_settings').select('value').eq('key','pin').maybeSingle();
-  if(error || !data){ $('lockError').textContent = 'خطأ بالتحقق، حاول مجدداً'; return; }
+  if(error || !data){ pinShakeError('خطأ بالتحقق، حاول مجدداً'); return; }
   if(val === data.value){
     localStorage.setItem(PIN_STORAGE_KEY, Date.now().toString());
     hideLockScreen();
     loadProducts();
   } else {
-    $('lockError').textContent = 'رمز غير صحيح';
-    $('lockPinInput').value = '';
-    $('lockPinInput').focus();
+    pinShakeError('رمز غير صحيح');
   }
 }
-$('lockPinInput').addEventListener('keydown', e=>{ if(e.key==='Enter') submitLockPin(); });
+
 
 initApp();
 
