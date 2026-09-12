@@ -1125,6 +1125,14 @@
     <div class="qty-number num" id="dQty" aria-live="polite">0</div>
     <div class="qty-unit" id="dUnit">قطعة</div>
     <div class="unit-conversion" id="dUnitConversion" style="display:none"></div>
+    <div class="vdc-odd-row" id="dOddRow" style="display:none; width:100%; max-width:280px;">
+      <span class="odd-label">قطعة فردية زائدة (بدون زوج)</span>
+      <div class="mini-stepper">
+        <button type="button" class="mini-btn minus" onclick="adjustDetailOdd(-1)" aria-label="إنقاص القطعة الفردية">−</button>
+        <span class="mini-val num" id="dOddVal">0</span>
+        <button type="button" class="mini-btn plus" onclick="adjustDetailOdd(1)" aria-label="زيادة القطعة الفردية">+</button>
+      </div>
+    </div>
     <div class="qty-lowflag" id="dLowFlag" style="display:none" role="status">الكمية أقل من الحد الأدنى</div>
     <button class="manual-edit-link" onclick="openManualQtyModal()">تعديل الكمية يدوياً (شحنة جديدة)</button>
   </div>
@@ -1518,9 +1526,18 @@ function bumpOddDebounced(productId, delta, onLocalUpdate){
     pendingOddCommits.set(productId, { baseOdd: p.oddLeftover||0, timer: null });
   }
   const pending = pendingOddCommits.get(productId);
-  p.oddLeftover = Math.max(0, (p.oddLeftover||0) + delta);
+  let newOdd = Math.max(0, (p.oddLeftover||0) + delta);
+
+  let converted = false;
+  while(newOdd >= 2){
+    newOdd -= 2;
+    converted = true;
+    bumpQtyDebounced(productId, 1, onLocalUpdate);
+  }
+  p.oddLeftover = newOdd;
   if(navigator.vibrate) navigator.vibrate(8);
   onLocalUpdate && onLocalUpdate(p);
+  if(converted) showToast('تحويل قطعتين فرديتين إلى حبة واحدة');
 
   clearTimeout(pending.timer);
   pending.timer = setTimeout(async ()=>{
@@ -1637,8 +1654,8 @@ function renderGroupScreen(){
       `;
       const oddValEl = oddRow.querySelector('.mini-val');
       const refreshOdd = (p)=>{
+        refreshRow(p);
         oddValEl.textContent = p.oddLeftover||0;
-        if(pieceHintEl) pieceHintEl.textContent = `${p.qty*2} قطعة${p.oddLeftover>0 ? ' + '+p.oddLeftover+' فردية' : ''}`;
       };
       oddRow.querySelector('.mini-btn.minus').onclick = ()=> bumpOddDebounced(v.id, -1, refreshOdd);
       oddRow.querySelector('.mini-btn.plus').onclick = ()=> bumpOddDebounced(v.id, 1, refreshOdd);
@@ -1654,19 +1671,27 @@ function updateQtyDisplay(p, animate){
   el.textContent = p.qty;
   $('dLowFlag').style.display = (p.qty <= p.min) ? 'block' : 'none';
   const conv = $('dUnitConversion');
+  const oddRow = $('dOddRow');
   if(p.unitType === 'pair'){
     let txt = `= ${p.qty * 2} قطعة فردية (زوج، كل قطعتين = حبة)`;
     if(p.oddLeftover > 0) txt += ` + ${p.oddLeftover} قطعة فردية بدون زوج`;
     conv.textContent = txt;
     conv.style.display = 'block';
+    oddRow.style.display = 'flex';
+    $('dOddVal').textContent = p.oddLeftover || 0;
   } else {
     conv.style.display = 'none';
+    oddRow.style.display = 'none';
   }
   if(animate){
     el.classList.remove('bump');
     void el.offsetWidth;
     el.classList.add('bump');
   }
+}
+
+function adjustDetailOdd(delta){
+  bumpOddDebounced(currentProductId, delta, (p)=> updateQtyDisplay(p, false));
 }
 
 function bump(delta){
