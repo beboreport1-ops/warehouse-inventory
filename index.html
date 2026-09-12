@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   /* ============================================================
      نظام التصميم — لغة "صناعية موثوقة" لأداة تشغيلية يومية
@@ -1063,6 +1064,10 @@
       <div class="n" id="orderTitle">طلبات اليوم</div>
       <div class="s" id="orderSubcount">أضف الكميات المرسلة</div>
     </div>
+    <button class="icon-btn" onclick="triggerPdfImport()" aria-label="استيراد من ملف PDF">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M9 15v-2h6v2"/><path d="M12 13v6"/></svg>
+    </button>
+    <input type="file" id="pdfImportInput" accept="application/pdf" style="display:none">
     <button class="icon-btn" onclick="openHistoryScreen()" aria-label="سجل الطلبات">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
     </button>
@@ -1897,8 +1902,136 @@ let orderCart = new Map(); // product id -> qty
 let expandedOrderGroups = new Set();
 let orderActiveCategory = 'الكل';
 
-function openOrderScreen(){
-  orderCart.clear();
+/* ---------------- PDF invoice import (prefills the order cart for review) ---------------- */
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+function triggerPdfImport(){
+  $('pdfImportInput').click();
+}
+
+$('pdfImportInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  showToast('جارِ تحليل الملف...');
+  try{
+    const items = await parsePdfInvoice(file);
+    applyParsedItemsToOrder(items);
+  }catch(err){
+    console.error(err);
+    showToast('تعذر قراءة الملف، تأكد إنه PDF صحيح');
+  }
+});
+
+async function extractPdfPageLines(page){
+  const content = await page.getTextContent();
+  const lineMap = new Map();
+  content.items.forEach(it=>{
+    const y = Math.round(it.transform[5] / 2) * 2;
+    if(!lineMap.has(y)) lineMap.set(y, []);
+    lineMap.get(y).push(it);
+  });
+  const ys = Array.from(lineMap.keys()).sort((a,b)=> b - a);
+  return ys.map(y=>{
+    const lineItems = lineMap.get(y).sort((a,b)=> a.transform[4] - b.transform[4]);
+    return lineItems.map(it=> it.str).join(' ').trim();
+  }).filter(l=> l.length>0);
+}
+
+function reverseStr(s){ return s.split('').reverse().join(''); }
+
+async function parsePdfInvoice(file){
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const parsedItems = [];
+
+  for(let pageNum=1; pageNum<=pdf.numPages; pageNum++){
+    const page = await pdf.getPage(pageNum);
+    const lines = await extractPdfPageLines(page);
+
+    let qty=null, sku=null, category=null, color=null, size=null;
+
+    lines.forEach(line=>{
+      const itemMatch = line.match(/^(\d+)\s+([A-Za-z0-9\-]{2,})\s+([A-Za-z]+)\s+(\d+)/);
+      if(itemMatch){
+        qty = parseInt(itemMatch[1], 10);
+        sku = itemMatch[2];
+        category = itemMatch[3];
+        return;
+      }
+      const rev = reverseStr(line).normalize('NFKC');
+      const colorMatch = rev.match(/لون\s+(.+)/);
+      if(colorMatch){ color = colorMatch[1].trim(); return; }
+      const sizeMatch = rev.match(/القياس\s+(\S+)/);
+      if(sizeMatch){ size = sizeMatch[1].trim(); return; }
+    });
+
+    if(qty!==null && (color || size)){
+      parsedItems.push({ page:pageNum, qty, sku, category, color, size });
+    }
+  }
+  return parsedItems;
+}
+
+function normalizeArabicWord(w){
+  return w.normalize('NFKC').replace(/[\u064B-\u0652\s]/g, '');
+}
+function sortedChars(w){
+  return normalizeArabicWord(w).split('').sort().join('');
+}
+function wordMatchesFuzzy(productName, target){
+  if(!target) return true;
+  const targetSorted = sortedChars(target);
+  return productName.split(/\s+/).some(word => sortedChars(word) === targetSorted);
+}
+
+function matchParsedItemToProduct(item){
+  const candidates = products.filter(p=>{
+    const { size } = splitVariant(p.name);
+    const sizeOk = !item.size || (size && size.toUpperCase() === item.size.toUpperCase());
+    const colorOk = !item.color || p.name.includes(item.color) || wordMatchesFuzzy(p.name, item.color);
+    return sizeOk && colorOk;
+  });
+  return candidates.length===1 ? candidates[0] : null;
+}
+
+function applyParsedItemsToOrder(items){
+  if(items.length===0){ showToast('ما قدرت ألقى أي منتجات بالملف'); return; }
+
+  const unmatched = [];
+  const aggregated = new Map(); // productId -> qty
+
+  items.forEach(item=>{
+    const p = matchParsedItemToProduct(item);
+    if(!p){
+      unmatched.push(`${item.color||''} ${item.size||''}`.trim() || `صفحة ${item.page}`);
+      return;
+    }
+    aggregated.set(p.id, (aggregated.get(p.id)||0) + item.qty);
+  });
+
+  aggregated.forEach((qty, productId)=>{
+    const existing = orderCart.get(productId) || 0;
+    orderCart.set(productId, existing + qty);
+  });
+
+  openOrderScreen({ preserveCart:true });
+  renderOrderFilters();
+  renderOrderList();
+  updateOrderFooter();
+
+  const matchedCount = items.length - unmatched.length;
+  if(unmatched.length===0){
+    showToast(`تمت إضافة ${matchedCount} منتج من الملف — راجع الكميات قبل الإرسال`);
+  } else {
+    showToast(`أضيف ${matchedCount}، تعذر التعرف على: ${unmatched.join('، ')}`);
+  }
+}
+
+function openOrderScreen(opts){
+  if(!(opts && opts.preserveCart)){
+    orderCart.clear();
+  }
   expandedOrderGroups.clear();
   orderActiveCategory = 'الكل';
   $('orderSearch').value = '';
