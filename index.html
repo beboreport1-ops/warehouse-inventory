@@ -1963,22 +1963,47 @@ $('pdfImportInput').addEventListener('change', async (e)=>{
   }
 });
 
-async function extractPdfPageLines(page){
+async function extractPdfPageLineItems(page){
   const content = await page.getTextContent();
   const lineMap = new Map();
   content.items.forEach(it=>{
+    if(!it.str || it.str.length===0) return;
     const y = Math.round(it.transform[5] / 2) * 2;
     if(!lineMap.has(y)) lineMap.set(y, []);
     lineMap.get(y).push(it);
   });
   const ys = Array.from(lineMap.keys()).sort((a,b)=> b - a);
-  return ys.map(y=>{
-    const lineItems = lineMap.get(y).sort((a,b)=> a.transform[4] - b.transform[4]);
-    return lineItems.map(it=> it.str).join(' ').trim();
-  }).filter(l=> l.length>0);
+  return ys.map(y=> lineMap.get(y).sort((a,b)=> a.transform[4] - b.transform[4]));
 }
 
-function reverseStr(s){ return s.split('').reverse().join(''); }
+function joinLTR(items){
+  let out=''; let prevEnd=null;
+  items.forEach(it=>{
+    const x=it.transform[4], w=it.width||0;
+    if(prevEnd!==null){
+      const gap=x-prevEnd;
+      const cw=w/Math.max(it.str.length,1)||4;
+      if(gap>cw*0.35) out+=' ';
+    }
+    out+=it.str; prevEnd=x+w;
+  });
+  return out.trim();
+}
+
+function joinRTL(items){
+  const rev = [...items].reverse();
+  let out='';
+  rev.forEach((it, idx)=>{
+    if(idx>0){
+      const prevItem = rev[idx-1];
+      const gap = prevItem.transform[4] - (it.transform[4] + (it.width||0));
+      const cw = (it.width||0)/Math.max(it.str.length,1)||4;
+      if(gap>cw*0.35) out+=' ';
+    }
+    out+=it.str;
+  });
+  return out.normalize('NFKC').trim();
+}
 
 async function parsePdfInvoice(file){
   const buf = await file.arrayBuffer();
@@ -1987,11 +2012,13 @@ async function parsePdfInvoice(file){
 
   for(let pageNum=1; pageNum<=pdf.numPages; pageNum++){
     const page = await pdf.getPage(pageNum);
-    const lines = await extractPdfPageLines(page);
+    const lineItemGroups = await extractPdfPageLineItems(page);
+    const ltrLines = lineItemGroups.map(joinLTR);
+    const rtlLines = lineItemGroups.map(joinRTL);
 
     let qty=null, sku=null, category=null, color=null, size=null, orderNumber=null, customerName=null;
 
-    lines.forEach((line, i)=>{
+    ltrLines.forEach((line, i)=>{
       const orderNumMatch = line.match(/^#(\d+)/);
       if(orderNumMatch){ orderNumber = orderNumMatch[1]; return; }
 
@@ -2003,19 +2030,14 @@ async function parsePdfInvoice(file){
         return;
       }
 
-      const rev = reverseStr(line).normalize('NFKC');
-      if(rev.includes('مصدرة إلى') || rev.includes('مصدرة إىل')){
-        const nextLine = lines[i+1];
-        if(nextLine){
-          customerName = /[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(nextLine)
-            ? reverseStr(nextLine).normalize('NFKC').trim()
-            : nextLine.trim();
-        }
+      const rtl = rtlLines[i];
+      if(rtl.includes('مصدرة إلى') || rtl.includes('مصدرة إىل')){
+        customerName = rtlLines[i+1] ? rtlLines[i+1].trim() : null;
         return;
       }
-      const colorMatch = rev.match(/لون\s+(.+)/);
+      const colorMatch = rtl.match(/لون\s+(.+)/);
       if(colorMatch){ color = colorMatch[1].trim(); return; }
-      const sizeMatch = rev.match(/القياس\s+(\S+)/);
+      const sizeMatch = rtl.match(/القياس\s+(\S+)/);
       if(sizeMatch){ size = sizeMatch[1].trim(); return; }
     });
 
