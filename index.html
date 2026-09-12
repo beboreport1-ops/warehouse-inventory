@@ -938,6 +938,26 @@
   .history-card .hdate{ font-size:12px; color:var(--text-dim); margin-bottom:6px; }
   .history-card .hitem{ display:flex; justify-content:space-between; font-size:14px; padding:3px 0; }
   .history-card .htotal{ margin-top:6px; padding-top:6px; border-top:1px solid var(--line-soft); font-size:12.5px; color:var(--text-dim); }
+  .history-card .hactions{
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px solid var(--line-soft);
+  }
+  .history-card .hactions button{
+    flex:1;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    color:var(--text-dim);
+    padding:9px;
+    border-radius:var(--radius-s);
+    font-size:13px;
+    font-weight:600;
+    display:flex;align-items:center;justify-content:center;gap:6px;
+  }
+  .history-card .hactions button.danger{ color:var(--bad); }
+  .history-card .hactions button:active{ background:var(--surface-3); }
 
   .toast{
     position:fixed;
@@ -1151,6 +1171,17 @@
   <div class="detail-footer">
     <button class="ghost-btn" onclick="openEditModal()">تعديل بيانات المنتج</button>
     <button class="ghost-btn danger" onclick="deleteProduct()">حذف المنتج</button>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modalEditOrder" role="dialog" aria-modal="true" aria-labelledby="editOrderTitle">
+  <div class="modal-sheet">
+    <div class="modal-title" id="editOrderTitle">تعديل الطلب</div>
+    <div id="editOrderList"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal('modalEditOrder')">إلغاء</button>
+      <button class="btn-solid" onclick="saveEditedOrder()">حفظ التعديلات</button>
+    </div>
   </div>
 </div>
 
@@ -2089,12 +2120,145 @@ async function openHistoryScreen(){
       <div class="hdate">${dateStr}</div>
       ${itemsHtml}
       <div class="htotal">الإجمالي: ${order.total_qty} قطعة</div>
+      <div class="hactions">
+        <button type="button" class="edit-order-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          تعديل
+        </button>
+        <button type="button" class="delete-order-btn danger">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          حذف
+        </button>
+      </div>
     `;
+    card.querySelector('.edit-order-btn').onclick = ()=> openEditOrderModal(order);
+    card.querySelector('.delete-order-btn').onclick = ()=> deleteOrderRecord(order);
     list.appendChild(card);
   });
 }
 function closeHistoryScreen(){
   document.body.classList.remove('history-open');
+}
+
+/* ---------------- edit / delete a past order ---------------- */
+async function deleteOrderRecord(order){
+  const ok = await customConfirm(
+    `حذف هذا الطلب وإرجاع ${order.total_qty} قطعة للمخزون؟`,
+    { title:'حذف الطلب', okText:'حذف وإرجاع', danger:true }
+  );
+  if(!ok) return;
+
+  const failed = [];
+  for(const item of (order.items||[])){
+    const p = products.find(x=>x.sku===item.sku);
+    if(!p){ failed.push(item.name); continue; }
+    const newQty = p.qty + item.qty;
+    const { error } = await sb.from('products').update({ qty:newQty }).eq('id', p.id);
+    if(error){ failed.push(item.name); continue; }
+    sb.from('stock_movements').insert({
+      product_id:p.id, change_amount:item.qty, previous_qty:p.qty, new_qty:newQty,
+      movement_type:'order_deleted_restore'
+    }).then(()=>{});
+    p.qty = newQty;
+  }
+
+  const { error: delErr } = await sb.from('orders').delete().eq('id', order.id);
+  if(delErr){ showToast('تعذر حذف سجل الطلب'); return; }
+
+  renderList();
+  if(failed.length>0) showToast(`تم الحذف، لكن تعذر إرجاع: ${failed.join('، ')}`);
+  else showToast('تم حذف الطلب وإرجاع الكمية للمخزون');
+  openHistoryScreen();
+}
+
+let editingOrder = null;
+let editOrderDraft = new Map();
+
+function openEditOrderModal(order){
+  editingOrder = order;
+  editOrderDraft = new Map((order.items||[]).map(it => [it.sku, it.qty]));
+  renderEditOrderModal();
+  openModal('modalEditOrder');
+}
+
+function renderEditOrderModal(){
+  const list = $('editOrderList');
+  list.innerHTML = '';
+  (editingOrder.items||[]).forEach(it=>{
+    const row = document.createElement('div');
+    row.className = 'order-row';
+    const val = editOrderDraft.get(it.sku) ?? it.qty;
+    row.innerHTML = `
+      <div class="info">
+        <div class="n">${escapeHtml(it.name)}</div>
+        <div class="s num">${escapeHtml(it.sku)}</div>
+      </div>
+      <div class="order-stepper">
+        <button type="button" class="stepper-btn minus" aria-label="إنقاص">−</button>
+        <span class="stepper-val num">${val}</span>
+        <button type="button" class="stepper-btn plus" aria-label="زيادة">+</button>
+      </div>
+    `;
+    const valEl = row.querySelector('.stepper-val');
+    row.querySelector('.minus').onclick = ()=>{
+      const nv = Math.max(0, (editOrderDraft.get(it.sku) ?? it.qty) - 1);
+      editOrderDraft.set(it.sku, nv);
+      valEl.textContent = nv;
+    };
+    row.querySelector('.plus').onclick = ()=>{
+      const nv = (editOrderDraft.get(it.sku) ?? it.qty) + 1;
+      editOrderDraft.set(it.sku, nv);
+      valEl.textContent = nv;
+    };
+    list.appendChild(row);
+  });
+}
+
+async function saveEditedOrder(){
+  const newItems = [];
+  const stockAdjustments = [];
+  let totalQty = 0;
+
+  for(const it of (editingOrder.items||[])){
+    const newQty = editOrderDraft.get(it.sku) ?? it.qty;
+    if(newQty > 0){
+      newItems.push({ name: it.name, sku: it.sku, qty: newQty });
+      totalQty += newQty;
+    }
+    const delta = newQty - it.qty;
+    if(delta !== 0) stockAdjustments.push({ sku: it.sku, name: it.name, delta });
+  }
+
+  if(newItems.length === 0){
+    const ok = await customConfirm('كل الكميات صارت صفر — سيتم حذف الطلب بالكامل. متابعة؟', {title:'حذف الطلب', okText:'حذف', danger:true});
+    if(!ok) return;
+  }
+
+  const failed = [];
+  for(const adj of stockAdjustments){
+    const p = products.find(x=>x.sku===adj.sku);
+    if(!p){ failed.push(adj.name); continue; }
+    const newStockQty = Math.max(0, p.qty - adj.delta);
+    const { error } = await sb.from('products').update({ qty:newStockQty }).eq('id', p.id);
+    if(error){ failed.push(adj.name); continue; }
+    sb.from('stock_movements').insert({
+      product_id:p.id, change_amount:-adj.delta, previous_qty:p.qty, new_qty:newStockQty,
+      movement_type:'order_edited_adjust'
+    }).then(()=>{});
+    p.qty = newStockQty;
+  }
+
+  if(newItems.length === 0){
+    await sb.from('orders').delete().eq('id', editingOrder.id);
+  } else {
+    await sb.from('orders').update({ items:newItems, total_qty:totalQty }).eq('id', editingOrder.id);
+  }
+
+  closeModal('modalEditOrder');
+  renderList();
+  if(failed.length>0) showToast(`تم الحفظ، تعذر تعديل مخزون: ${failed.join('، ')}`);
+  else showToast('تم تحديث الطلب والمخزون');
+  openHistoryScreen();
 }
 
 document.addEventListener('keydown', e=>{
