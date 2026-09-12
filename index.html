@@ -804,6 +804,77 @@
     font-weight:700;
   }
 
+  .variant-detail-card{
+    background:var(--surface-2);
+    border:1px solid var(--line-soft);
+    border-radius:var(--radius-s);
+    padding:10px 12px;
+    margin-bottom:8px;
+  }
+  .vdc-top{
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .vdc-top .size{
+    font-size:13px;
+    font-weight:700;
+    color:var(--text-dim);
+    min-width:44px;
+    flex-shrink:0;
+  }
+  .vdc-info{
+    flex:1;
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+    cursor:pointer;
+  }
+  .vdc-info .healthbar{
+    height:6px;
+    border-radius:999px;
+    background:var(--surface-3);
+    overflow:hidden;
+  }
+  .vdc-info .healthbar-fill{ height:100%; border-radius:999px; }
+  .vdc-info .pieces-hint{ font-size:10.5px; color:var(--text-faint); }
+  .variant-detail-card.status-good .healthbar-fill{ background:var(--good); }
+  .variant-detail-card.status-warn .healthbar-fill{ background:var(--warn); }
+  .variant-detail-card.status-bad .healthbar-fill{ background:var(--bad); }
+  .vdc-edit-btn{
+    width:34px;height:34px;
+    border-radius:9px;
+    border:1px solid var(--line);
+    background:var(--surface-3);
+    color:var(--text-dim);
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+  }
+  .vdc-edit-btn:active{ background:var(--surface); }
+  .vdc-odd-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-top:8px;
+    padding-top:8px;
+    border-top:1px dashed var(--line-soft);
+  }
+  .vdc-odd-row .odd-label{ font-size:11.5px; color:var(--text-faint); }
+  .mini-stepper{ display:flex; align-items:center; gap:6px; }
+  .mini-btn{
+    width:26px;height:26px;
+    border-radius:7px;
+    border:1px solid var(--line);
+    background:var(--surface-3);
+    color:var(--text);
+    font-size:14px;
+    font-weight:700;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .mini-btn:active{ background:var(--surface); }
+  .mini-val{ min-width:18px; text-align:center; font-size:13px; font-weight:700; }
+
   .cart-fab{
     position:fixed;
     bottom:calc(22px + env(safe-area-inset-bottom));
@@ -1180,6 +1251,7 @@ async function loadProducts(){
 
 sb.channel('products-changes')
   .on('postgres_changes', { event:'*', schema:'public', table:'products' }, ()=>{
+    if(pendingQtyCommits.size > 0 || pendingOddCommits.size > 0) return;
     loadProducts().then(()=>{
       if(document.body.classList.contains('detail-open') && currentProductId){
         const p = products.find(x=>x.id===currentProductId);
@@ -1409,6 +1481,58 @@ function closeDetail(){
 }
 
 /* ---------------- group (whole-product) screen ---------------- */
+/* ---------------- debounced quantity commits (fixes rapid-tap race/flicker) ---------------- */
+const pendingQtyCommits = new Map(); // product id -> { baseQty, timer }
+const pendingOddCommits = new Map(); // product id -> { baseOdd, timer }
+
+function bumpQtyDebounced(productId, delta, onLocalUpdate){
+  const p = products.find(x=>x.id===productId);
+  if(!p) return;
+  if(!pendingQtyCommits.has(productId)){
+    pendingQtyCommits.set(productId, { baseQty: p.qty, timer: null });
+  }
+  const pending = pendingQtyCommits.get(productId);
+  p.qty = Math.max(0, p.qty + delta);
+  if(navigator.vibrate) navigator.vibrate(delta>0?12:[8,24,8]);
+  onLocalUpdate && onLocalUpdate(p);
+
+  clearTimeout(pending.timer);
+  pending.timer = setTimeout(async ()=>{
+    const baseQty = pending.baseQty;
+    const finalQty = p.qty;
+    pendingQtyCommits.delete(productId);
+    if(finalQty === baseQty) return;
+    const { error } = await sb.from('products').update({ qty:finalQty }).eq('id', productId);
+    if(error){ showToast('فشل الحفظ، حاول مجدداً'); return; }
+    sb.from('stock_movements').insert({
+      product_id:productId, change_amount:finalQty-baseQty, previous_qty:baseQty, new_qty:finalQty,
+      movement_type: (finalQty-baseQty)>0 ? 'increment' : 'decrement'
+    }).then(()=>{});
+  }, 450);
+}
+
+function bumpOddDebounced(productId, delta, onLocalUpdate){
+  const p = products.find(x=>x.id===productId);
+  if(!p) return;
+  if(!pendingOddCommits.has(productId)){
+    pendingOddCommits.set(productId, { baseOdd: p.oddLeftover||0, timer: null });
+  }
+  const pending = pendingOddCommits.get(productId);
+  p.oddLeftover = Math.max(0, (p.oddLeftover||0) + delta);
+  if(navigator.vibrate) navigator.vibrate(8);
+  onLocalUpdate && onLocalUpdate(p);
+
+  clearTimeout(pending.timer);
+  pending.timer = setTimeout(async ()=>{
+    const baseOdd = pending.baseOdd;
+    const finalOdd = p.oddLeftover;
+    pendingOddCommits.delete(productId);
+    if(finalOdd === baseOdd) return;
+    const { error } = await sb.from('products').update({ odd_leftover:finalOdd }).eq('id', productId);
+    if(error){ showToast('فشل الحفظ، حاول مجدداً'); return; }
+  }, 450);
+}
+
 let currentGroupBase = null;
 let currentGroupCategory = null;
 
@@ -1458,16 +1582,70 @@ function renderGroupScreen(){
   variants.forEach(v=>{
     const status = statusOf(v);
     const pct = v.min>0 ? Math.min(100, Math.round((v.qty / (v.min*2)) * 100)) : (v.qty>0?100:0);
-    const chip = document.createElement('button');
-    chip.className = `variant-chip status-${status}`;
-    chip.setAttribute('aria-label', `${currentGroupBase} ${v.label}، الكمية ${v.qty}${v.unitType==='pair' ? '، ' + (v.qty*2) + ' قطعة فردية' : ''}`);
-    chip.innerHTML = `
+
+    const card = document.createElement('div');
+    card.className = `variant-detail-card status-${status}`;
+
+    const top = document.createElement('div');
+    top.className = 'vdc-top';
+    top.innerHTML = `
       <span class="size">${escapeHtml(v.label)}</span>
-      <span class="healthbar"><span class="healthbar-fill" style="width:${pct}%"></span></span>
-      <span class="qty num">${v.qty}${v.unitType==='pair' ? `<span class="pieces">${v.qty*2} قطعة${v.oddLeftover>0 ? ' +'+v.oddLeftover+' فردية' : ''}</span>` : ''}</span>
+      <div class="vdc-info">
+        <div class="healthbar"><span class="healthbar-fill" style="width:${pct}%"></span></div>
+        ${v.unitType==='pair' ? `<span class="pieces-hint">${v.qty*2} قطعة${v.oddLeftover>0 ? ' + '+v.oddLeftover+' فردية' : ''}</span>` : ''}
+      </div>
+      <div class="order-stepper">
+        <button type="button" class="stepper-btn minus" aria-label="إنقاص ${escapeHtml(v.label)}">−</button>
+        <span class="stepper-val num">${v.qty}</span>
+        <button type="button" class="stepper-btn plus" aria-label="زيادة ${escapeHtml(v.label)}">+</button>
+      </div>
+      <button type="button" class="vdc-edit-btn" aria-label="تفاصيل ${escapeHtml(v.label)}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      </button>
     `;
-    chip.onclick = ()=>openDetail(v.id);
-    wrap.appendChild(chip);
+    const qtyValEl = top.querySelector('.stepper-val');
+    const pieceHintEl = top.querySelector('.pieces-hint');
+    const healthFillEl = top.querySelector('.healthbar-fill');
+
+    const refreshRow = (p)=>{
+      qtyValEl.textContent = p.qty;
+      if(pieceHintEl){
+        pieceHintEl.textContent = `${p.qty*2} قطعة${p.oddLeftover>0 ? ' + '+p.oddLeftover+' فردية' : ''}`;
+      }
+      const newPct = p.min>0 ? Math.min(100, Math.round((p.qty / (p.min*2)) * 100)) : (p.qty>0?100:0);
+      healthFillEl.style.width = newPct + '%';
+      const newStatus = statusOf(p);
+      card.className = `variant-detail-card status-${newStatus}`;
+    };
+
+    top.querySelector('.stepper-btn.minus').onclick = ()=> bumpQtyDebounced(v.id, -1, refreshRow);
+    top.querySelector('.stepper-btn.plus').onclick = ()=> bumpQtyDebounced(v.id, 1, refreshRow);
+    top.querySelector('.vdc-edit-btn').onclick = ()=> openDetail(v.id);
+    top.querySelector('.vdc-info').onclick = ()=> openDetail(v.id);
+    card.appendChild(top);
+
+    if(v.unitType === 'pair'){
+      const oddRow = document.createElement('div');
+      oddRow.className = 'vdc-odd-row';
+      oddRow.innerHTML = `
+        <span class="odd-label">قطعة فردية زائدة (بدون زوج)</span>
+        <div class="mini-stepper">
+          <button type="button" class="mini-btn minus" aria-label="إنقاص القطعة الفردية">−</button>
+          <span class="mini-val num">${v.oddLeftover||0}</span>
+          <button type="button" class="mini-btn plus" aria-label="زيادة القطعة الفردية">+</button>
+        </div>
+      `;
+      const oddValEl = oddRow.querySelector('.mini-val');
+      const refreshOdd = (p)=>{
+        oddValEl.textContent = p.oddLeftover||0;
+        if(pieceHintEl) pieceHintEl.textContent = `${p.qty*2} قطعة${p.oddLeftover>0 ? ' + '+p.oddLeftover+' فردية' : ''}`;
+      };
+      oddRow.querySelector('.mini-btn.minus').onclick = ()=> bumpOddDebounced(v.id, -1, refreshOdd);
+      oddRow.querySelector('.mini-btn.plus').onclick = ()=> bumpOddDebounced(v.id, 1, refreshOdd);
+      card.appendChild(oddRow);
+    }
+
+    wrap.appendChild(card);
   });
 }
 
@@ -1491,21 +1669,8 @@ function updateQtyDisplay(p, animate){
   }
 }
 
-async function bump(delta){
-  const p = products.find(x=>x.id===currentProductId);
-  if(!p) return;
-  const prevQty = p.qty;
-  const newQty = Math.max(0, p.qty + delta);
-  p.qty = newQty;
-  updateQtyDisplay(p, true);
-  if(navigator.vibrate) navigator.vibrate(delta>0?15:[10,30,10]);
-
-  const { error } = await sb.from('products').update({ qty:newQty }).eq('id', currentProductId);
-  if(error){ p.qty = prevQty; updateQtyDisplay(p, false); showToast('فشل الحفظ، حاول مجدداً'); return; }
-  sb.from('stock_movements').insert({
-    product_id:currentProductId, change_amount:delta, previous_qty:prevQty, new_qty:newQty,
-    movement_type: delta>0 ? 'increment' : 'decrement'
-  }).then(()=>{});
+function bump(delta){
+  bumpQtyDebounced(currentProductId, delta, (p)=> updateQtyDisplay(p, true));
 }
 
 async function deleteProduct(){
